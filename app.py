@@ -93,9 +93,9 @@ def get_base64_of_bin_file(bin_file):
         st.error(f"Erro ao carregar imagem: {bin_file}, {e}")
         return ""
 
-# --- ATUALIZADO: CSS SIMPLIFICADO ---
+# --- ATUALIZADO: CSS MOBILE-FIRST ---
 def get_home_page_css(desktop_img, mobile_img):
-    """Gera o CSS com Media Query para trocar APENAS o fundo."""
+    """Gera o CSS com Media Query 'Mobile-First'."""
     
     try:
         desktop_ext = os.path.splitext(desktop_img)[1][1:]
@@ -109,7 +109,7 @@ def get_home_page_css(desktop_img, mobile_img):
     except Exception:
         mobile_ext = "jpg"; mobile_bin_str = ""
 
-    # CSS Padrão (Desktop)
+    # CSS Padrão (Mobile-First)
     css = f'''
     <style>
         /* Esconder sidebar na Home */
@@ -117,9 +117,9 @@ def get_home_page_css(desktop_img, mobile_img):
             display: none;
         }}
         
-        /* Fundo Padrão (Desktop) */
+        /* Fundo Padrão (MOBILE) */
         [data-testid="stAppViewContainer"] {{
-            background-image: url("data:image/{desktop_ext};base64,{desktop_bin_str}");
+            background-image: url("data:image/{mobile_ext};base64,{mobile_bin_str}");
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
@@ -154,22 +154,21 @@ def get_home_page_css(desktop_img, mobile_img):
             border: 1px solid #CCCCCC;
         }}
 
-        /* --- AJUSTE DE POSIÇÃO DOS BOTÕES --- */
+        /* Posição para Celular: 45% da altura (mais para cima) */
         .button-container {{
-            /* Posição para Desktop: 55% da altura da tela */
-            margin-top: 55vh; 
+            margin-top: 45vh;
         }}
         
-        /* O CSS MÁGICO: Media Query */
-        @media (max-width: 700px) {{
-            /* Fundo Mobile */
+        /* Media Query para DESKTOP (Min-width) */
+        @media (min-width: 701px) {{
+            /* Fundo Desktop */
             [data-testid="stAppViewContainer"] {{
-                background-image: url("data:image/{mobile_ext};base64,{mobile_bin_str}");
+                background-image: url("data:image/{desktop_ext};base64,{desktop_bin_str}");
             }}
-            
-            /* Posição para Celular: 45% da altura (mais para cima) */
+
+            /* Posição para Desktop: 55% da altura da tela */
             .button-container {{
-                margin-top: 45vh;
+                margin-top: 55vh; 
             }}
         }}
     </style>
@@ -480,7 +479,7 @@ elif st.session_state.pagina_selecionada == "Registro de Atividade":
     
     # --- NOVO BOTÃO HOME ---
     st.button("🏠 Voltar para Home", on_click=mudar_pagina, args=("Home",))
-
+    
     st.title("📋 Registro de Atividade")
 
     try:
