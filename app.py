@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px  # Necessário para os gráficos do Dashboard
 import base64
 import os
-from browser_detection import browser_detection_engine
+# from streamlit_user_agent import get_user_agent # <--- REMOVIDO
 from datetime import datetime
 import csv
 
@@ -17,7 +17,7 @@ if 'registration_count' not in st.session_state:
     st.session_state.registration_count = 0
 
 CSV_FILE = "registros.csv"
-BASE_FILE = "Base.xlsx"
+BASE_FILE = "Base.xlsx" # Corrigido para "B" maiúsculo
 GESTOR_FILE = "gestor.xlsx"
 CSV_FEEDBACK = "feedback_gestor_programa.csv"
 
@@ -140,9 +140,9 @@ def get_home_page_css(file_path):
     </style>
     '''
 
-# --- 3. BARRA LATERAL E FILTROS ---
-user_agent = browser_detection_engine()
-is_mobile = user_agent.get('isMobile', False) if user_agent else False
+# --- 3. EXECUÇÃO DE CSS/FUNDO E BARRA LATERAL (MUDANÇA AQUI) ---
+# Lógica de detecção de mobile foi REMOVIDA
+is_mobile = False # <--- MUDANÇA AQUI: Sempre será False
 
 st.sidebar.title("Menu")
 st.sidebar.radio(
@@ -174,32 +174,27 @@ df_data = initialize_data()
 if st.session_state.pagina_selecionada == "Home":
     # (Código da Home com botões "Trilha de Desenvolvimento" e "Treinamentos")
     try:
-        css = get_home_page_css("fundocelular.jpg" if is_mobile else "fundo.jpg")
+        # --- MUDANÇA AQUI: Sempre usa "fundo.jpg" ---
+        css = get_home_page_css("fundo.jpg") 
         if css:
             st.markdown(css, unsafe_allow_html=True)
     except Exception as e:
         st.error(f"Ocorreu um erro ao carregar o fundo: {e}")
 
-    if not is_mobile:
-        st.markdown("<br>" * 15, unsafe_allow_html=True)
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.button("📋 Registro de Atividade", use_container_width=True, on_click=mudar_pagina, args=("Registro de Atividade",))
-            st.button("Trilha de Desenvolvimento", use_container_width=True) 
-        with col2:
-            st.button("💬 Registro de Feedback", use_container_width=True, on_click=mudar_pagina, args=("Registro de Feedback",))
-            st.button("Treinamentos", use_container_width=True)
-        with col3:
-            st.button("📊 Dashboard", use_container_width=True, on_click=mudar_pagina, args=("Dashboard",))
-            st.button("🔒 Administração", use_container_width=True, on_click=mudar_pagina, args=("Administração",))
-    else:
-        st.markdown("<br>" * 15, unsafe_allow_html=True)
-        st.button("📊 Dashboard", use_container_width=True, on_click=mudar_pagina, args=("Dashboard",))
+    # --- MUDANÇA AQUI: Lógica de mobile removida ---
+    # Sempre mostra o layout de desktop
+    st.markdown("<br>" * 15, unsafe_allow_html=True)
+    col1, col2, col3 = st.columns(3)
+    with col1:
         st.button("📋 Registro de Atividade", use_container_width=True, on_click=mudar_pagina, args=("Registro de Atividade",))
+        st.button("Trilha de Desenvolvimento", use_container_width=True) 
+    with col2:
         st.button("💬 Registro de Feedback", use_container_width=True, on_click=mudar_pagina, args=("Registro de Feedback",))
-        st.button("Trilha de Desenvolvimento", use_container_width=True)
         st.button("Treinamentos", use_container_width=True)
+    with col3:
+        st.button("📊 Dashboard", use_container_width=True, on_click=mudar_pagina, args=("Dashboard",))
         st.button("🔒 Administração", use_container_width=True, on_click=mudar_pagina, args=("Administração",))
+
 
 # ========= DASHBOARD (ATUALIZADO COM RANKING E CORES) =========
 elif st.session_state.pagina_selecionada == "Dashboard":
@@ -299,7 +294,7 @@ elif st.session_state.pagina_selecionada == "Dashboard":
 
                 mapa_cores_status = {
                     'Concluído': '#76B82A', # Verde (Cocal)
-                    'Iniciado': '#30515F',  # Azul Escuro (Cocal) - CORRIGIDO AQUI
+                    'Iniciado': '#30515F',  # Azul Escuro (Cocal)
                     'Pendente': '#B2B2B2'   # Cinza (Cocal)
                 }
 
@@ -325,11 +320,23 @@ elif st.session_state.pagina_selecionada == "Dashboard":
                 
                 df_medias = pd.DataFrame(medias)
                 
+                # --- APLICAÇÃO DO GRADIENTE E BARRAS FINAS ---
                 fig_bar = px.bar(df_medias, x='Competência', y='Média', 
                                  title="Média por Competência (4=Excelente, 1=Ruim)",
                                  text=df_medias['Média'].apply(lambda x: f'{x:.2f}'),
                                  range_y=[0, 4],
-                                 color_discrete_sequence=['#30515F', '#76B82A', '#B2B2B2']) # Azul, Verde, Cinza
+                                 color='Média', # Mapear cor para a Média
+                                 # Gradiente Azul -> Verde
+                                 color_continuous_scale=[[0, '#30515F'], [1, '#76B82A']], 
+                                 range_color=[0, 4] 
+                                )
+                
+                # Afinar as barras (aumentando o espaço entre elas)
+                fig_bar.update_layout(bargap=0.5)
+                
+                # Remover a colorbar (legenda de cor)
+                fig_bar.update_layout(coloraxis_showscale=False)
+                
                 st.plotly_chart(fig_bar, use_container_width=True)
             else:
                 st.info("O gráfico de média por competência só funciona com os novos formulários de feedback (Iniciativa, Qualidade, etc.)")
