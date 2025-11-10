@@ -3,7 +3,6 @@ import pandas as pd
 import plotly.express as px  # Necessário para os gráficos do Dashboard
 import base64
 import os
-# from streamlit_user_agent import get_user_agent # Removido
 from datetime import datetime
 import csv
 
@@ -90,59 +89,95 @@ def get_base64_of_bin_file(bin_file):
         with open(file_path, 'rb') as f:
             data = f.read()
         return base64.b64encode(data).decode()
-    except Exception:
+    except Exception as e:
+        st.error(f"Erro ao carregar imagem: {bin_file}, {e}")
         return ""
 
-def get_home_page_css(file_path):
+# --- ATUALIZADO: CSS SIMPLIFICADO ---
+def get_home_page_css(desktop_img, mobile_img):
+    """Gera o CSS com Media Query para trocar APENAS o fundo."""
+    
     try:
-        ext = os.path.splitext(file_path)[1][1:]
-    except:
-        ext = "png"
-    bin_str = get_base64_of_bin_file(file_path)
-    if not bin_str:
-        return ""
-    # CSS (sem alterações)
-    return f'''
+        desktop_ext = os.path.splitext(desktop_img)[1][1:]
+        desktop_bin_str = get_base64_of_bin_file(desktop_img)
+    except Exception:
+        desktop_ext = "jpg"; desktop_bin_str = ""
+
+    try:
+        mobile_ext = os.path.splitext(mobile_img)[1][1:]
+        mobile_bin_str = get_base64_of_bin_file(mobile_img)
+    except Exception:
+        mobile_ext = "jpg"; mobile_bin_str = ""
+
+    # CSS Padrão (Desktop)
+    css = f'''
     <style>
+        /* Esconder sidebar na Home */
         [data-testid="stSidebar"] {{
             display: none;
         }}
+        
+        /* Fundo Padrão (Desktop) */
         [data-testid="stAppViewContainer"] {{
-            background-image: url("data:image/{ext};base64,{bin_str}");
+            background-image: url("data:image/{desktop_ext};base64,{desktop_bin_str}");
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
             background-attachment: scroll;
         }}
+        
         [data-testid="stHeader"] {{
             background-color: transparent;
         }}
+        
         h1, h2, h3, p {{
             color: black !important;
             text-shadow: none !important;
         }}
+        
         div[data-testid="stButton"] > button {{
             background-color: #FFFFFF;
             border: 1px solid #DDDDDD;
             border-radius: 10px;
             font-weight: bold;
         }}
+        
         div[data-testid="stButton"] > button > div > span {{
             color: #000000 !important;
             text-shadow: none !important;
             filter: none !important;
         }}
+        
         div[data-testid="stButton"] > button:hover {{
             background-color: #EEEEEE;
             color: #000000 !important;
             border: 1px solid #CCCCCC;
         }}
+
+        /* --- AJUSTE DE POSIÇÃO DOS BOTÕES --- */
+        .button-container {{
+            /* Posição para Desktop: 55% da altura da tela */
+            margin-top: 55vh; 
+        }}
+        
+        /* O CSS MÁGICO: Media Query */
+        @media (max-width: 700px) {{
+            /* Fundo Mobile */
+            [data-testid="stAppViewContainer"] {{
+                background-image: url("data:image/{mobile_ext};base64,{mobile_bin_str}");
+            }}
+            
+            /* Posição para Celular: 45% da altura (mais para cima) */
+            .button-container {{
+                margin-top: 45vh;
+            }}
+        }}
     </style>
     '''
+    return css
 
-# --- 3. EXECUÇÃO DE CSS/FUNDO E BARRA LATERAL (MUDANÇA AQUI) ---
-# Lógica de detecção de mobile foi REMOVIDA
-is_mobile = False # <--- MUDANÇA AQUI: Sempre será False
+# --- 3. EXECUÇÃO DE CSS/FUNDO E BARRA LATERAL ---
+# Não precisamos mais da detecção de 'is_mobile' aqui
 
 st.sidebar.title("Menu")
 st.sidebar.radio(
@@ -170,39 +205,43 @@ if st.session_state.pagina_selecionada != "Home":
 # --- 4. PÁGINAS ---
 df_data = initialize_data()
 
-# ========= HOME =========
+# ========= HOME (LAYOUT ÚNICO E SIMPLIFICADO) =========
 if st.session_state.pagina_selecionada == "Home":
-    # (Código da Home com botões "Trilha de Desenvolvimento" e "Treinamentos")
+    
+    # Carregar o CSS mágico que faz a troca de fundo
     try:
-        # --- MUDANÇA AQUI: Sempre usa "fundo.jpg" ---
-        css = get_home_page_css("fundo.jpg") 
-        if css:
-            st.markdown(css, unsafe_allow_html=True)
+        css = get_home_page_css("fundo.jpg", "fundocelular.jpg")
+        st.markdown(css, unsafe_allow_html=True)
     except Exception as e:
         st.error(f"Ocorreu um erro ao carregar o fundo: {e}")
 
-    # --- MUDANÇA AQUI: Lógica de mobile removida ---
-    # Sempre mostra o layout de desktop
+    # --- Layout Único (3 colunas) ---
+    # O Streamlit vai empilhar isso automaticamente no celular
     
-    # --- AJUSTE AQUI: MUDAMOS DE 15 PARA 18 ---
-    st.markdown("<br>" * 18, unsafe_allow_html=True)
+    # Adiciona a div com a classe para controlar o espaçamento
+    st.markdown('<div class="button-container">', unsafe_allow_html=True) 
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.button("📋 Registro de Atividade", use_container_width=True, on_click=mudar_pagina, args=("Registro de Atividade",))
-        st.button("Trilha de Desenvolvimento", use_container_width=True) 
+        st.button("📋 Registro de Atividade", use_container_width=True, on_click=mudar_pagina, args=("Registro de Atividade",), key="reg_desktop")
+        st.button("Trilha de Desenvolvimento", use_container_width=True, key="trilha_desktop") 
     with col2:
-        st.button("💬 Registro de Feedback", use_container_width=True, on_click=mudar_pagina, args=("Registro de Feedback",))
-        st.button("Treinamentos", use_container_width=True)
+        st.button("💬 Registro de Feedback", use_container_width=True, on_click=mudar_pagina, args=("Registro de Feedback",), key="feed_desktop")
+        st.button("Treinamentos", use_container_width=True, key="treina_desktop")
     with col3:
-        st.button("📊 Dashboard", use_container_width=True, on_click=mudar_pagina, args=("Dashboard",))
-        st.button("🔒 Administração", use_container_width=True, on_click=mudar_pagina, args=("Administração",))
-        
-    # O código antigo para 'else: is_mobile' foi removido, pois is_mobile é sempre False
+        st.button("📊 Dashboard", use_container_width=True, on_click=mudar_pagina, args=("Dashboard",), key="dash_desktop")
+        st.button("🔒 Administração", use_container_width=True, on_click=mudar_pagina, args=("Administração",), key="admin_desktop")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # O layout mobile duplicado foi REMOVIDO
 
 
 # ========= DASHBOARD (ATUALIZADO COM RANKING E CORES) =========
 elif st.session_state.pagina_selecionada == "Dashboard":
+    
+    # --- NOVO BOTÃO HOME ---
+    st.button("🏠 Voltar para Home", on_click=mudar_pagina, args=("Home",))
     
     st.title("📊 Relatórios de Feedback dos Gestores")
     st.divider()
@@ -438,7 +477,10 @@ elif st.session_state.pagina_selecionada == "Dashboard":
 
 # ========= REGISTRO DE ATIVIDADE =========
 elif st.session_state.pagina_selecionada == "Registro de Atividade":
-    # (Código com Status "Iniciado" e % automático)
+    
+    # --- NOVO BOTÃO HOME ---
+    st.button("🏠 Voltar para Home", on_click=mudar_pagina, args=("Home",))
+
     st.title("📋 Registro de Atividade")
 
     try:
@@ -608,6 +650,9 @@ elif st.session_state.pagina_selecionada == "Registro de Atividade":
 # ========= REGISTRO DE FEEDBACK =========
 elif st.session_state.pagina_selecionada == "Registro de Feedback":
     
+    # --- NOVO BOTÃO HOME ---
+    st.button("🏠 Voltar para Home", on_click=mudar_pagina, args=("Home",))
+    
     st.title("💬 Registro de Feedback do Gestor")
     st.markdown("---")
     
@@ -714,6 +759,9 @@ elif st.session_state.pagina_selecionada == "Registro de Feedback":
 
 # ========= ADMIN (ATUALIZADO COM CORREÇÃO DE DATA) =========
 elif st.session_state.pagina_selecionada == "Administração":
+    
+    # --- NOVO BOTÃO HOME ---
+    st.button("🏠 Voltar para Home", on_click=mudar_pagina, args=("Home",))
     
     st.title("🔒 Administração de Dados")
     st.markdown("---")
