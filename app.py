@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px  # Necessário para os gráficos do Dashboard
 import base64
 import os
-# from streamlit_user_agent import get_user_agent # <--- REMOVIDO
+# from streamlit_user_agent import get_user_agent # Removido
 from datetime import datetime
 import csv
 
@@ -183,7 +183,10 @@ if st.session_state.pagina_selecionada == "Home":
 
     # --- MUDANÇA AQUI: Lógica de mobile removida ---
     # Sempre mostra o layout de desktop
-    st.markdown("<br>" * 15, unsafe_allow_html=True)
+    
+    # --- AJUSTE AQUI: MUDAMOS DE 15 PARA 18 ---
+    st.markdown("<br>" * 18, unsafe_allow_html=True)
+    
     col1, col2, col3 = st.columns(3)
     with col1:
         st.button("📋 Registro de Atividade", use_container_width=True, on_click=mudar_pagina, args=("Registro de Atividade",))
@@ -194,6 +197,8 @@ if st.session_state.pagina_selecionada == "Home":
     with col3:
         st.button("📊 Dashboard", use_container_width=True, on_click=mudar_pagina, args=("Dashboard",))
         st.button("🔒 Administração", use_container_width=True, on_click=mudar_pagina, args=("Administração",))
+        
+    # O código antigo para 'else: is_mobile' foi removido, pois is_mobile é sempre False
 
 
 # ========= DASHBOARD (ATUALIZADO COM RANKING E CORES) =========
