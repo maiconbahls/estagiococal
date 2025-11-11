@@ -64,6 +64,22 @@ TIME_COLS_TREINAMENTOS = ['Inicio', 'Termino']
 
 # --- 2. FUNÇÕES DE APOIO (ATUALIZADAS) ---
 
+# --- NOVA FUNÇÃO CENTRAL PARA LER A BASE ---
+@st.cache_data
+def initialize_base():
+    try:
+        # LER TODAS AS COLUNAS COMO TEXTO PRIMEIRO para evitar erros de data
+        df = pd.read_excel(BASE_FILE, dtype=str) 
+        # Verificar se as colunas essenciais existem
+        cols_essenciais = ['MATRICULA', 'COLABORADOR', 'ADMISSAO', 'TERMINO CONTRATO', 'UNIDADE']
+        if not all(col in df.columns for col in cols_essenciais):
+            st.error(f"Erro Crítico: O arquivo 'Base.xlsx' deve conter as colunas: {', '.join(cols_essenciais)}")
+            return pd.DataFrame(columns=cols_essenciais)
+        return df
+    except Exception as e:
+        st.error(f"Erro CRÍTICO ao ler {BASE_FILE}: {e}")
+        return pd.DataFrame()
+
 def initialize_data(): # Registros de Atividades
     if not os.path.exists(CSV_FILE):
         df = pd.DataFrame(columns=COLUNAS_REGISTROS)
@@ -87,10 +103,9 @@ def initialize_data(): # Registros de Atividades
             st.error(f"Erro ao ler {CSV_FILE}: {e}. Pode ser necessário apagá-lo na área de Administração.")
             return pd.DataFrame(columns=COLUNAS_REGISTROS)
 
-def initialize_trilha(): # Trilha de Desenvolvimento
+def initialize_trilha(base_df): # Trilha de Desenvolvimento
     if not os.path.exists(TRILHA_FILE):
         try:
-            base_df = pd.read_excel(BASE_FILE, dtype={'MATRICULA': str})
             if "MATRICULA" in base_df.columns:
                 matriculas = base_df["MATRICULA"].dropna().unique()
                 trilha_data = []
@@ -286,8 +301,9 @@ st.sidebar.radio(
 st.sidebar.divider()
 
 # Carregar dados
+df_base = initialize_base() # <--- LEITURA CENTRALIZADA
 df_data = initialize_data()
-df_trilha = initialize_trilha() 
+df_trilha = initialize_trilha(df_base) # <--- Passa a base para ela
 df_somar = initialize_somar() # Carregar dados do Somar
 df_treinamentos = initialize_treinamentos() # Carregar dados de treinamentos
 
@@ -297,13 +313,11 @@ if st.session_state.pagina_selecionada == "Painel de Indicadores":
     data_inicio = st.sidebar.date_input("Data Início", datetime.now().date().replace(day=1), format="DD/MM/YYYY", key="filtro_data_inicio")
     data_fim = st.sidebar.date_input("Data Fim", datetime.now().date(), format="DD/MM/YYYY", key="filtro_data_fim")
     
-    try:
-        # --- CORREÇÃO AQUI: Ler datas como datetime, mas MATRICULA como string ---
-        base_tmp = pd.read_excel(BASE_FILE, dtype={'MATRICULA': str})
-        lista_estagiarios = sorted(base_tmp["COLABORADOR"].dropna().unique().tolist())
+    if not df_base.empty:
+        lista_estagiarios = sorted(df_base["COLABORADOR"].dropna().unique().tolist())
         lista_estagiarios.insert(0, "Todos")
         filtro_estagiario_sidebar = st.sidebar.selectbox("Estagiário", lista_estagiarios, key="filtro_estagiario")
-    except Exception as e:
+    else:
         st.sidebar.warning("Não foi possível carregar lista de estagiários (base.xlsx).")
         filtro_estagiario_sidebar = "Todos"
 else:
@@ -535,7 +549,7 @@ elif st.session_state.pagina_selecionada == "Painel de Indicadores":
         st.subheader("🏆 Ranking de Desempenho dos Estagiários")
         
         try:
-            base_estagiarios = pd.read_excel(BASE_FILE, dtype={'MATRICULA': str})
+            base_estagiarios = df_base.copy() # Usar a base já lida
             df_ranking = pd.DataFrame(base_estagiarios["COLABORADOR"].dropna().unique(), columns=["Estagiário"])
 
             cols_notas_existentes = [f'Nota_{col}' for col in cols_competencias if f'Nota_{col}' in df_grafico.columns]
@@ -648,362 +662,361 @@ elif st.session_state.pagina_selecionada == "Página do Estagiário":
     
     st.title("👨‍🎓 Página do Estagiário")
 
-    try:
-        # --- CORREÇÃO AQUI: Ler datas como datetime, mas MATRICULA como string ---
-        base = pd.read_excel(BASE_FILE, dtype={'MATRICULA': str})
-    except Exception as e:
-        st.warning(f"Não foi possível carregar {BASE_FILE}: {e}")
-        base = pd.DataFrame(columns=["MATRICULA", "COLABORADOR", "DESCRIÇÃO LOCAL", "UNIDADE", "ADMISSAO", "TERMINO CONTRATO"])
-
-    try:
-        if "DESCRIÇÃO LOCAL" in base.columns:
-            lista_setores = sorted(base["DESCRIÇÃO LOCAL"].dropna().unique().tolist())
-        else:
-            lista_setores = []
-    except Exception as e:
-        st.warning(f"Não foi possível carregar lista de setores: {e}")
-        lista_setores = []
-    lista_setores.append("Outros") 
-
-    st.write("Digite sua matrícula para continuar:")
+    # --- CORREÇÃO: USAR O DATAFRAME GLOBAL 'df_base' ---
+    base = df_base.copy() # Usar o df_base que já foi carregado como string
     
-    # --- ATUALIZADO: Login com st.form ---
-    with st.form(key="estagiario_login_form"):
-        matricula = st.text_input("Matrícula", key="matricula_input")
-        confirmar = st.form_submit_button("Confirmar matrícula")
-
-    if confirmar:
-        if matricula:
-            st.session_state["matricula_digitada"] = matricula
-            st.rerun() # Força o recarregamento da página com a matrícula
-        else:
-            st.warning("Por favor, digite uma matrícula antes de confirmar.")
-
-    if st.session_state.get("matricula_digitada"):
-        # --- CORREÇÃO AQUI: Não precisa mais de .astype() ---
-        estagiario = base.loc[base["MATRICULA"] == str(matricula)] if "MATRICULA" in base.columns else pd.DataFrame()
-
-        if not estagiario.empty:
-            nome = estagiario["COLABORADOR"].values[0]
-            setor_estagiario = estagiario["DESCRIÇÃO LOCAL"].values[0] 
-            
-            # --- ATUALIZAÇÃO IMPORTANTE ---
-            # Garantir que a coluna UNIDADE existe
-            if "UNIDADE" not in estagiario.columns:
-                st.error("A coluna 'UNIDADE' não foi encontrada no Base.xlsx. Não consigo filtrar os treinamentos.")
-                unidade = "N/A" # Definir um padrão para evitar que o app quebre
+    if base.empty:
+         st.error(f"Não foi possível carregar {BASE_FILE}. A página não pode funcionar.")
+    else:
+        try:
+            if "DESCRIÇÃO LOCAL" in base.columns:
+                lista_setores = sorted(base["DESCRIÇÃO LOCAL"].dropna().unique().tolist())
             else:
-                unidade = estagiario["UNIDADE"].values[0] # <--- PEGAMOS A UNIDADE AQUI
-            
-            st.success(f"Bem-vindo(a), **{nome.split()[0]}** ({setor_estagiario} - {unidade}) 👋")
-            
-            # --- 6. 🔔 MEUS PRÓXIMOS TREINAMENTOS (NOVO) ---
-            st.subheader(f"🔔 Próximos Treinamentos ({unidade})")
-            
-            hoje = datetime.now().date()
-            # Filtra treinamentos futuros E pela unidade do estagiário
-            df_treinamentos_filtrados = df_treinamentos[
-                (df_treinamentos['Data'].dt.date >= hoje) &
-                (df_treinamentos['Unidade'] == unidade)
-            ].copy()
-            
-            if df_treinamentos_filtrados.empty:
-                st.info(f"Nenhum treinamento agendado para sua unidade ({unidade}) no momento.")
+                lista_setores = []
+        except Exception as e:
+            st.warning(f"Não foi possível carregar lista de setores: {e}")
+            lista_setores = []
+        lista_setores.append("Outros") 
+
+        st.write("Digite sua matrícula para continuar:")
+        
+        # --- ATUALIZADO: Login com st.form ---
+        with st.form(key="estagiario_login_form"):
+            matricula = st.text_input("Matrícula", key="matricula_input")
+            confirmar = st.form_submit_button("Confirmar matrícula")
+
+        if confirmar:
+            if matricula:
+                st.session_state["matricula_digitada"] = matricula
+                st.rerun() # Força o recarregamento da página com a matrícula
             else:
-                df_treinamentos_filtrados.sort_values(by='Data', ascending=True, inplace=True)
-                st.warning("Você tem treinamentos agendados! Veja abaixo:")
+                st.warning("Por favor, digite uma matrícula antes de confirmar.")
+
+        if st.session_state.get("matricula_digitada"):
+            matricula = st.session_state["matricula_digitada"]
+            estagiario = base.loc[base["MATRICULA"] == str(matricula)] if "MATRICULA" in base.columns else pd.DataFrame()
+
+            if not estagiario.empty:
+                nome = estagiario["COLABORADOR"].values[0]
+                setor_estagiario = estagiario["DESCRIÇÃO LOCAL"].values[0] 
                 
-                for idx, row in df_treinamentos_filtrados.iterrows():
-                    with st.container(border=True):
-                        st.subheader(f"📍 {row['Nome_Treinamento']}")
-                        st.caption(f"**🗓️ Data:** {row['Data'].strftime('%d/%m/%Y')}")
-                        st.caption(f"**⏰ Horário:** {row['Inicio'].strftime('%H:%M')} - {row['Termino'].strftime('%H:%M')}")
-                        st.caption(f"**💻 Modalidade:** {row['Modalidade']}")
-                        
-                        if row['Modalidade'] == "Presencial":
-                            st.caption(f"**📍 Local:** {row['Local_Link']}")
-                        else:
-                            if str(row['Local_Link']).startswith('http'):
-                                st.link_button("Acessar Link", row['Local_Link'])
-                            else:
-                                st.caption(f"**🔗 Link:** {row['Local_Link']}")
-            
-            st.divider()
-            # --- FIM DA NOVA SEÇÃO ---
-
-            # --- 1. FORMULÁRIO PARA CRIAR NOVOS PROJETOS ---
-            st.subheader("1. Registrar um Novo Projeto")
-            with st.expander("Clique aqui para abrir o formulário de novo projeto"):
-                with st.form(key="novo_projeto_form"):
-                    st.write("Preencha todos os dados para criar um novo projeto no seu nome.")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        data_registro = st.date_input("Data do Registro (Hoje)", datetime.now(), format="DD/MM/YYYY")
-                        
-                        try:
-                            index_setor = lista_setores.index(setor_estagiario)
-                        except ValueError:
-                            index_setor = len(lista_setores) - 1 # "Outros"
-                        
-                        categoria = st.selectbox("Descrição do Local (Setor)", lista_setores, index=index_setor)
-                        data_inicio_proj = st.date_input("Data de Início do Projeto", datetime.now(), format="DD/MM/YYYY")
-                    
-                    with col2:
-                        status = st.selectbox("Status", ["Iniciado", "Pendente", "Concluído"], index=0)
-                        nome_projeto = st.text_input("Nome do Projeto / Atividade Específica", placeholder="Ex: Controle de Processos de Segurança")
-                        previsao_conclusao = st.date_input("Previsão de Conclusão", datetime.now(), format="DD/MM/YYYY")
-                    
-                    obs = st.text_area("Observações Iniciais")
-                    
-                    enviar = st.form_submit_button("Registrar Novo Projeto", type="primary")
-
-                if enviar:
-                    if not nome_projeto:
-                        st.warning("Por favor, preencha o 'Nome do Projeto'.")
-                    else:
-                        if status == "Iniciado":
-                            percentual = 0
-                        elif status == "Pendente":
-                            percentual = 50
-                        elif status == "Concluído":
-                            percentual = 100
-                        else:
-                            percentual = 0
-                        
-                        nova_linha = pd.DataFrame([{
-                            'Data_Registro': data_registro.strftime('%d/%m/%Y'), 
-                            'Colaborador': nome,
-                            'Setor': setor_estagiario,
-                            'Categoria_Atividade': categoria,
-                            'Nome_Projeto': nome_projeto,
-                            'Data_Inicio_Projeto': data_inicio_proj.strftime('%d/%m/%Y'),
-                            'Previsao_Conclusao': previsao_conclusao.strftime('%d/%m/%Y'),
-                            'Status': status,
-                            'Percentual_Concluido': percentual,
-                            'Observacoes': obs
-                        }])
-                        
-                        nova_linha.to_csv(CSV_FILE, mode='a', header=False, index=False, encoding='utf-8')
-                        st.success(f"✅ Novo projeto '{nome_projeto}' registrado com sucesso!")
-                        st.rerun()
-
-            st.divider()
-
-            # --- 2. EDITOR DE PROJETOS EXISTENTES ---
-            st.subheader("2. Atualizar Meus Projetos")
-            st.info("Aqui você pode editar o Status, Previsão e Observações dos seus projetos existentes.")
-
-            df_registros_estagiario = df_data[df_data['Colaborador'] == nome].copy()
-            
-            if df_registros_estagiario.empty:
-                st.warning("Você ainda não tem projetos registrados. Use o formulário acima para criar o primeiro.")
-            else:
-                try:
-                    df_projetos_unicos = df_registros_estagiario.sort_values(
-                        by='Data_Registro', ascending=True
-                    ).drop_duplicates(
-                        subset='Nome_Projeto', keep='last'
-                    )
-                    
-                    df_projetos_unicos.set_index(df_projetos_unicos.index, inplace=True)
-
-                    edited_df = st.data_editor(
-                        df_projetos_unicos,
-                        key="editor_projetos",
-                        use_container_width=True,
-                        column_config={
-                            "Nome_Projeto": st.column_config.Column("Nome do Projeto", disabled=True),
-                            "Data_Inicio_Projeto": st.column_config.DateColumn("Início", format="DD/MM/YYYY", disabled=True),
-                            
-                            "Status": st.column_config.SelectboxColumn(
-                                "Status", options=["Iniciado", "Pendente", "Concluído"], required=True 
-                            ),
-                            "Previsao_Conclusao": st.column_config.DateColumn( 
-                                "Previsão Conclusão", format="DD/MM/YYYY"
-                            ),
-                            "Observacoes": st.column_config.TextColumn("Observações"),
-                            
-                            "Percentual_Concluido": None,
-                            "Categoria_Atividade": None,
-                            "Setor": None,
-                            "Colaborador": None,
-                            "Data_Registro": None
-                        }
-                    )
-
-                    if st.button("Salvar Alterações", type="primary"):
-                        df_full_data = initialize_data() 
-                        
-                        df_full_data.update(edited_df)
-                        
-                        def map_status_to_percent(status):
-                            if status == "Iniciado": return 0
-                            elif status == "Pendente": return 50
-                            elif status == "Concluído": return 100
-                            return 0
-
-                        df_full_data['Percentual_Concluido'] = df_full_data['Status'].apply(map_status_to_percent)
-                        
-                        for col in DATE_COLS_REGISTROS:
-                            df_full_data[col] = df_full_data[col].dt.strftime('%d/%m/%Y').replace('NaT', '')
-                        
-                        df_full_data.to_csv(CSV_FILE, index=False, encoding='utf-8')
-                        
-                        st.success("✅ Projetos atualizados com sucesso!")
-                        st.rerun()
-
-                except Exception as e:
-                    st.error(f"Ocorreu um erro ao carregar seu editor de projetos: {e}")
-                    st.error("Se o problema persistir, apague o 'registros.csv' na página de Administração.")
-
-            st.divider()
-
-            # --- 3. DASHBOARD PESSOAL (NOVO) ---
-            st.subheader("3. Meu Desempenho (Projetos)")
-            
-            if not df_registros_estagiario.empty:
-                df_meus_projetos_unicos = df_registros_estagiario.sort_values(by='Data_Registro', ascending=True).drop_duplicates(subset=['Nome_Projeto'], keep='last')
+                # --- ATUALIZAÇÃO IMPORTANTE ---
+                # Garantir que a coluna UNIDADE existe
+                if "UNIDADE" not in estagiario.columns:
+                    st.error("A coluna 'UNIDADE' não foi encontrada no Base.xlsx. Não consigo filtrar os treinamentos.")
+                    unidade = "N/A" # Definir um padrão para evitar que o app quebre
+                else:
+                    unidade = estagiario["UNIDADE"].values[0] # <--- PEGAMOS A UNIDADE AQUI
                 
-                # Métricas
-                hoje = pd.to_datetime(datetime.now().date())
-                df_meus_ativos = df_meus_projetos_unicos[df_meus_projetos_unicos['Status'].isin(['Iniciado', 'Pendente'])]
-                df_meus_concluidos = df_meus_projetos_unicos[df_meus_projetos_unicos['Status'] == 'Concluído']
-                df_meus_atrasados = df_meus_ativos[df_meus_ativos['Previsao_Conclusao'] < hoje]
-
-                col1_m, col2_m, col3_m = st.columns(3)
-                col1_m.metric("Meus Projetos Ativos", len(df_meus_ativos))
-                col2_m.metric("Meus Projetos Concluídos", len(df_meus_concluidos))
-                col3_m.metric("Meus Projetos Atrasados", len(df_meus_atrasados))
-
-                # Gráfico de Pizza Pessoal
-                df_status_counts = df_meus_projetos_unicos['Status'].value_counts().reset_index()
-                df_status_counts.columns = ['Status', 'Contagem']
-                mapa_cores_status = {
-                    'Concluído': '#76B82A', 'Iniciado': '#30515F', 'Pendente': '#B2B2B2'
-                }
-                fig_pie_meus_status = px.pie(df_status_counts, names='Status', values='Contagem', 
-                                             title="Status dos Meus Projetos",
-                                             color='Status',
-                                             color_discrete_map=mapa_cores_status)
-                st.plotly_chart(fig_pie_meus_status, use_container_width=True)
-
-            else:
-                st.info("Assim que você registrar seu primeiro projeto, seus indicadores aparecerão aqui.")
-            
-            st.divider()
-
-            # --- 4. TRILHA DE DESENVOLVIMENTO (MOVIDA PARA CÁ) ---
-            st.subheader("4. Minha Trilha de Desenvolvimento")
-            
-            coluna_admissao = "ADMISSAO" 
-            coluna_termino = "TERMINO CONTRATO" # <--- NOVA COLUNA
-            
-            if coluna_admissao not in base.columns or coluna_termino not in base.columns:
-                st.error(f"Erro: As colunas '{coluna_admissao}' ou '{coluna_termino}' não foram encontradas no arquivo 'Base.xlsx'.")
-            else:
-                try:
-                    data_admissao_str = estagiario[coluna_admissao].values[0]
-                    # --- CORREÇÃO AQUI: Forçar formato BR ---
-                    data_admissao = pd.to_datetime(data_admissao_str, errors='coerce', format='%d/%m/%Y') 
+                st.success(f"Bem-vindo(a), **{nome.split()[0]}** ({setor_estagiario} - {unidade}) 👋")
+                
+                # --- 6. 🔔 MEUS PRÓXIMOS TREINAMENTOS (NOVO) ---
+                st.subheader(f"🔔 Próximos Treinamentos ({unidade})")
+                
+                hoje = datetime.now().date()
+                # Filtra treinamentos futuros E pela unidade do estagiário
+                df_treinamentos_filtrados = df_treinamentos[
+                    (df_treinamentos['Data'].dt.date >= hoje) &
+                    (df_treinamentos['Unidade'] == unidade)
+                ].copy()
+                
+                if df_treinamentos_filtrados.empty:
+                    st.info(f"Nenhum treinamento agendado para sua unidade ({unidade}) no momento.")
+                else:
+                    df_treinamentos_filtrados.sort_values(by='Data', ascending=True, inplace=True)
+                    st.warning("Você tem treinamentos agendados! Veja abaixo:")
                     
-                    data_termino_str = estagiario[coluna_termino].values[0]
-                    # --- CORREÇÃO AQUI: Forçar formato BR ---
-                    data_termino = pd.to_datetime(data_termino_str, errors='coerce', format='%d/%m/%Y') 
-
-                    if pd.isna(data_admissao) or pd.isna(data_termino):
-                        st.error("Sua data de admissão ou término não foi encontrada ou está em formato incorreto.")
-                    else:
-                        # --- NOVO BLOCO DE MÉTRICAS DE CONTRATO ---
-                        hoje_dt = datetime.now()
-                        dias_para_termino = (data_termino - hoje_dt).days
-                        
-                        col1_data, col2_data, col3_data = st.columns(3)
-                        col1_data.metric("Data de Início", data_admissao.strftime('%d/%m/%Y'))
-                        col2_data.metric("Data de Término", data_termino.strftime('%d/%m/%Y'))
-                        if dias_para_termino > 0:
-                            col3_data.metric("Dias Restantes de Contrato", f"{dias_para_termino} dias")
-                        else:
-                            col3_data.metric("Contrato Encerrado", "🏁")
-                        
-                        progresso = df_trilha[df_trilha['Matricula'] == matricula]
-                        
-                        if progresso.empty:
-                            st.warning("Seu progresso na trilha ainda não foi iniciado pelo RH.")
-                        else:
-                            progresso = progresso.iloc[0] 
+                    for idx, row in df_treinamentos_filtrados.iterrows():
+                        with st.container(border=True):
+                            st.subheader(f"📍 {row['Nome_Treinamento']}")
+                            st.caption(f"**🗓️ Data:** {row['Data'].strftime('%d/%m/%Y')}")
+                            st.caption(f"**⏰ Horário:** {row['Inicio'].strftime('%H:%M')} - {row['Termino'].strftime('%H:%M')}")
+                            st.caption(f"**💻 Modalidade:** {row['Modalidade']}")
                             
-                            meses_completos = progresso[['Mes_1', 'Mes_2', 'Mes_3', 'Mes_4', 'Mes_5', 'Mes_6']].sum()
-                            percentual_completo = int((meses_completos / 6) * 100)
-                            
-                            if percentual_completo == 100:
-                                st.progress(percentual_completo, text="Trilha Concluída! 🎉")
+                            if row['Modalidade'] == "Presencial":
+                                st.caption(f"**📍 Local:** {row['Local_Link']}")
                             else:
-                                st.progress(percentual_completo, text=f"{percentual_completo}% Concluído")
-
-                            st.markdown("---")
-                            
-                            etapa_atual_encontrada = False
-                            
-                            for i in range(1, 7):
-                                mes_key = f"Mes_{i}"
-                                mes_descricao = TRILHA_MESES[mes_key]
-                                mes_concluido = progresso[mes_key]
-                                data_limite = data_admissao + relativedelta(months=i)
-                                
-                                if mes_concluido:
-                                    st.success(f"**{mes_descricao}** (Concluído!)", icon="✅")
+                                if str(row['Local_Link']).startswith('http'):
+                                    st.link_button("Acessar Link", row['Local_Link'])
                                 else:
-                                    if not etapa_atual_encontrada:
-                                        if hoje_dt > data_limite:
-                                            st.error(f"🚨 **{mes_descricao}** (Prazo: {data_limite.strftime('%d/%m/%Y')} - PENDENTE)", icon="🚨")
-                                        else:
-                                            st.info(f"⏳ **{mes_descricao}** (Prazo: {data_limite.strftime('%d/%m/%Y')} - ETAPA ATUAL)", icon="⏳")
-                                        etapa_atual_encontrada = True
-                                    else:
-                                        st.caption(f"🔘 {mes_descricao} (Prazo: {data_limite.strftime('%d/%m/%Y')})")
-                            
-                except Exception as e:
-                    st.error(f"Ocorreu um erro ao calcular sua trilha: {e}")
-
-            st.divider()
-
-            # --- 5. MEUS FEEDBACKS RECEBIDOS (NOVO) ---
-            st.subheader("5. Meus Feedbacks Recebidos")
-            
-            if os.path.exists(CSV_FEEDBACK):
-                df_meus_feedbacks = pd.read_csv(CSV_FEEDBACK)
-                df_meus_feedbacks = df_meus_feedbacks[df_meus_feedbacks['Estagiario'] == nome]
-            else:
-                df_meus_feedbacks = pd.DataFrame()
-
-            if df_meus_feedbacks.empty:
-                st.info("Você ainda não recebeu nenhum feedback oficial do seu gestor.")
-            else:
-                st.write("Aqui estão os feedbacks que você recebeu (do mais recente para o mais antigo):")
-                df_meus_feedbacks['Data_Hora'] = pd.to_datetime(df_meus_feedbacks['Data_Hora'])
-                df_meus_feedbacks = df_meus_feedbacks.sort_values(by="Data_Hora", ascending=False)
+                                    st.caption(f"**🔗 Link:** {row['Local_Link']}")
                 
-                for idx, row in df_meus_feedbacks.iterrows():
-                    with st.container(border=True):
-                        st.write(f"**Feedback de:** {row['Gestor']} em {row['Data_Hora'].strftime('%d/%m/%Y')}")
-                        
-                        cols_fb_existentes = ['Iniciativa', 'Aprendizagem', 'Qualidade', 'Relacoes']
-                        if all(col in row for col in cols_fb_existentes):
-                            st.markdown(f"""
-                            * **Iniciativa:** {row['Iniciativa']}
-                            * **Aprendizagem:** {row['Aprendizagem']}
-                            * **Qualidade:** {row['Qualidade']}
-                            * **Relações:** {row['Relacoes']}
-                            """)
-                        
-                        if pd.notna(row['Feedback_Livre']) and row['Feedback_Livre'].strip():
-                            st.write("**Feedback Adicional:**")
-                            st.info(f"{row['Feedback_Livre']}")
+                st.divider()
+                # --- FIM DA NOVA SEÇÃO ---
 
-        else:
-            st.error("⚠️ Matrícula não encontrada na base. Verifique e tente novamente.")
-    elif confirmar and not matricula:
-        st.warning("Por favor, digite uma matrícula antes de confirmar.")
+                # --- 1. FORMULÁRIO PARA CRIAR NOVOS PROJETOS ---
+                st.subheader("1. Registrar um Novo Projeto")
+                with st.expander("Clique aqui para abrir o formulário de novo projeto"):
+                    with st.form(key="novo_projeto_form"):
+                        st.write("Preencha todos os dados para criar um novo projeto no seu nome.")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            data_registro = st.date_input("Data do Registro (Hoje)", datetime.now(), format="DD/MM/YYYY")
+                            
+                            try:
+                                index_setor = lista_setores.index(setor_estagiario)
+                            except ValueError:
+                                index_setor = len(lista_setores) - 1 # "Outros"
+                            
+                            categoria = st.selectbox("Descrição do Local (Setor)", lista_setores, index=index_setor)
+                            data_inicio_proj = st.date_input("Data de Início do Projeto", datetime.now(), format="DD/MM/YYYY")
+                        
+                        with col2:
+                            status = st.selectbox("Status", ["Iniciado", "Pendente", "Concluído"], index=0)
+                            nome_projeto = st.text_input("Nome do Projeto / Atividade Específica", placeholder="Ex: Controle de Processos de Segurança")
+                            previsao_conclusao = st.date_input("Previsão de Conclusão", datetime.now(), format="DD/MM/YYYY")
+                        
+                        obs = st.text_area("Observações Iniciais")
+                        
+                        enviar = st.form_submit_button("Registrar Novo Projeto", type="primary")
+
+                    if enviar:
+                        if not nome_projeto:
+                            st.warning("Por favor, preencha o 'Nome do Projeto'.")
+                        else:
+                            if status == "Iniciado":
+                                percentual = 0
+                            elif status == "Pendente":
+                                percentual = 50
+                            elif status == "Concluído":
+                                percentual = 100
+                            else:
+                                percentual = 0
+                            
+                            nova_linha = pd.DataFrame([{
+                                'Data_Registro': data_registro.strftime('%d/%m/%Y'), 
+                                'Colaborador': nome,
+                                'Setor': setor_estagiario,
+                                'Categoria_Atividade': categoria,
+                                'Nome_Projeto': nome_projeto,
+                                'Data_Inicio_Projeto': data_inicio_proj.strftime('%d/%m/%Y'),
+                                'Previsao_Conclusao': previsao_conclusao.strftime('%d/%m/%Y'),
+                                'Status': status,
+                                'Percentual_Concluido': percentual,
+                                'Observacoes': obs
+                            }])
+                            
+                            nova_linha.to_csv(CSV_FILE, mode='a', header=False, index=False, encoding='utf-8')
+                            st.success(f"✅ Novo projeto '{nome_projeto}' registrado com sucesso!")
+                            st.rerun()
+
+                st.divider()
+
+                # --- 2. EDITOR DE PROJETOS EXISTENTES ---
+                st.subheader("2. Atualizar Meus Projetos")
+                st.info("Aqui você pode editar o Status, Previsão e Observações dos seus projetos existentes.")
+
+                df_registros_estagiario = df_data[df_data['Colaborador'] == nome].copy()
+                
+                if df_registros_estagiario.empty:
+                    st.warning("Você ainda não tem projetos registrados. Use o formulário acima para criar o primeiro.")
+                else:
+                    try:
+                        df_projetos_unicos = df_registros_estagiario.sort_values(
+                            by='Data_Registro', ascending=True
+                        ).drop_duplicates(
+                            subset='Nome_Projeto', keep='last'
+                        )
+                        
+                        df_projetos_unicos.set_index(df_projetos_unicos.index, inplace=True)
+
+                        edited_df = st.data_editor(
+                            df_projetos_unicos,
+                            key="editor_projetos",
+                            use_container_width=True,
+                            column_config={
+                                "Nome_Projeto": st.column_config.Column("Nome do Projeto", disabled=True),
+                                "Data_Inicio_Projeto": st.column_config.DateColumn("Início", format="DD/MM/YYYY", disabled=True),
+                                
+                                "Status": st.column_config.SelectboxColumn(
+                                    "Status", options=["Iniciado", "Pendente", "Concluído"], required=True 
+                                ),
+                                "Previsao_Conclusao": st.column_config.DateColumn( 
+                                    "Previsão Conclusão", format="DD/MM/YYYY"
+                                ),
+                                "Observacoes": st.column_config.TextColumn("Observações"),
+                                
+                                "Percentual_Concluido": None,
+                                "Categoria_Atividade": None,
+                                "Setor": None,
+                                "Colaborador": None,
+                                "Data_Registro": None
+                            }
+                        )
+
+                        if st.button("Salvar Alterações", type="primary"):
+                            df_full_data = initialize_data() 
+                            
+                            df_full_data.update(edited_df)
+                            
+                            def map_status_to_percent(status):
+                                if status == "Iniciado": return 0
+                                elif status == "Pendente": return 50
+                                elif status == "Concluído": return 100
+                                return 0
+
+                            df_full_data['Percentual_Concluido'] = df_full_data['Status'].apply(map_status_to_percent)
+                            
+                            for col in DATE_COLS_REGISTROS:
+                                df_full_data[col] = df_full_data[col].dt.strftime('%d/%m/%Y').replace('NaT', '')
+                            
+                            df_full_data.to_csv(CSV_FILE, index=False, encoding='utf-8')
+                            
+                            st.success("✅ Projetos atualizados com sucesso!")
+                            st.rerun()
+
+                    except Exception as e:
+                        st.error(f"Ocorreu um erro ao carregar seu editor de projetos: {e}")
+                        st.error("Se o problema persistir, apague o 'registros.csv' na página de Administração.")
+
+                st.divider()
+
+                # --- 3. DASHBOARD PESSOAL (NOVO) ---
+                st.subheader("3. Meu Desempenho (Projetos)")
+                
+                if not df_registros_estagiario.empty:
+                    df_meus_projetos_unicos = df_registros_estagiario.sort_values(by='Data_Registro', ascending=True).drop_duplicates(subset=['Nome_Projeto'], keep='last')
+                    
+                    # Métricas
+                    hoje = pd.to_datetime(datetime.now().date())
+                    df_meus_ativos = df_meus_projetos_unicos[df_meus_projetos_unicos['Status'].isin(['Iniciado', 'Pendente'])]
+                    df_meus_concluidos = df_meus_projetos_unicos[df_meus_projetos_unicos['Status'] == 'Concluído']
+                    df_meus_atrasados = df_meus_ativos[df_meus_ativos['Previsao_Conclusao'] < hoje]
+
+                    col1_m, col2_m, col3_m = st.columns(3)
+                    col1_m.metric("Meus Projetos Ativos", len(df_meus_ativos))
+                    col2_m.metric("Meus Projetos Concluídos", len(df_meus_concluidos))
+                    col3_m.metric("Meus Projetos Atrasados", len(df_meus_atrasados))
+
+                    # Gráfico de Pizza Pessoal
+                    df_status_counts = df_meus_projetos_unicos['Status'].value_counts().reset_index()
+                    df_status_counts.columns = ['Status', 'Contagem']
+                    mapa_cores_status = {
+                        'Concluído': '#76B82A', 'Iniciado': '#30515F', 'Pendente': '#B2B2B2'
+                    }
+                    fig_pie_meus_status = px.pie(df_status_counts, names='Status', values='Contagem', 
+                                                 title="Status dos Meus Projetos",
+                                                 color='Status',
+                                                 color_discrete_map=mapa_cores_status)
+                    st.plotly_chart(fig_pie_meus_status, use_container_width=True)
+
+                else:
+                    st.info("Assim que você registrar seu primeiro projeto, seus indicadores aparecerão aqui.")
+                
+                st.divider()
+
+                # --- 4. TRILHA DE DESENVOLVIMENTO (MOVIDA PARA CÁ) ---
+                st.subheader("4. Minha Trilha de Desenvolvimento")
+                
+                coluna_admissao = "ADMISSAO" 
+                coluna_termino = "TERMINO CONTRATO" # <--- NOVA COLUNA
+                
+                if coluna_admissao not in base.columns or coluna_termino not in base.columns:
+                    st.error(f"Erro: As colunas '{coluna_admissao}' ou '{coluna_termino}' não foram encontradas no arquivo 'Base.xlsx'.")
+                else:
+                    try:
+                        data_admissao_str = estagiario[coluna_admissao].values[0]
+                        # --- CORREÇÃO AQUI: Forçar formato BR ---
+                        data_admissao = pd.to_datetime(data_admissao_str, errors='coerce', dayfirst=True) 
+                        
+                        data_termino_str = estagiario[coluna_termino].values[0]
+                        # --- CORREÇÃO AQUI: Forçar formato BR ---
+                        data_termino = pd.to_datetime(data_termino_str, errors='coerce', dayfirst=True) 
+
+                        if pd.isna(data_admissao) or pd.isna(data_termino):
+                            st.error("Sua data de admissão ou término não foi encontrada ou está em formato incorreto.")
+                        else:
+                            # --- NOVO BLOCO DE MÉTRICAS DE CONTRATO ---
+                            hoje_dt = datetime.now()
+                            dias_para_termino = (data_termino - hoje_dt).days
+                            
+                            col1_data, col2_data, col3_data = st.columns(3)
+                            col1_data.metric("Data de Início", data_admissao.strftime('%d/%m/%Y'))
+                            col2_data.metric("Data de Término", data_termino.strftime('%d/%m/%Y'))
+                            if dias_para_termino > 0:
+                                col3_data.metric("Dias Restantes de Contrato", f"{dias_para_termino} dias")
+                            else:
+                                col3_data.metric("Contrato Encerrado", "🏁")
+                            
+                            progresso = df_trilha[df_trilha['Matricula'] == matricula]
+                            
+                            if progresso.empty:
+                                st.warning("Seu progresso na trilha ainda não foi iniciado pelo RH.")
+                            else:
+                                progresso = progresso.iloc[0] 
+                                
+                                meses_completos = progresso[['Mes_1', 'Mes_2', 'Mes_3', 'Mes_4', 'Mes_5', 'Mes_6']].sum()
+                                percentual_completo = int((meses_completos / 6) * 100)
+                                
+                                if percentual_completo == 100:
+                                    st.progress(percentual_completo, text="Trilha Concluída! 🎉")
+                                else:
+                                    st.progress(percentual_completo, text=f"{percentual_completo}% Concluído")
+
+                                st.markdown("---")
+                                
+                                etapa_atual_encontrada = False
+                                
+                                for i in range(1, 7):
+                                    mes_key = f"Mes_{i}"
+                                    mes_descricao = TRILHA_MESES[mes_key]
+                                    mes_concluido = progresso[mes_key]
+                                    data_limite = data_admissao + relativedelta(months=i)
+                                    
+                                    if mes_concluido:
+                                        st.success(f"**{mes_descricao}** (Concluído!)", icon="✅")
+                                    else:
+                                        if not etapa_atual_encontrada:
+                                            if hoje_dt > data_limite:
+                                                st.error(f"🚨 **{mes_descricao}** (Prazo: {data_limite.strftime('%d/%m/%Y')} - PENDENTE)", icon="🚨")
+                                            else:
+                                                st.info(f"⏳ **{mes_descricao}** (Prazo: {data_limite.strftime('%d/%m/%Y')} - ETAPA ATUAL)", icon="⏳")
+                                            etapa_atual_encontrada = True
+                                        else:
+                                            st.caption(f"🔘 {mes_descricao} (Prazo: {data_limite.strftime('%d/%m/%Y')})")
+                                
+                    except Exception as e:
+                        st.error(f"Ocorreu um erro ao calcular sua trilha: {e}")
+
+                st.divider()
+
+                # --- 5. MEUS FEEDBACKS RECEBIDOS (NOVO) ---
+                st.subheader("5. Meus Feedbacks Recebidos")
+                
+                if os.path.exists(CSV_FEEDBACK):
+                    df_meus_feedbacks = pd.read_csv(CSV_FEEDBACK)
+                    df_meus_feedbacks = df_meus_feedbacks[df_meus_feedbacks['Estagiario'] == nome]
+                else:
+                    df_meus_feedbacks = pd.DataFrame()
+
+                if df_meus_feedbacks.empty:
+                    st.info("Você ainda não recebeu nenhum feedback oficial do seu gestor.")
+                else:
+                    st.write("Aqui estão os feedbacks que você recebeu (do mais recente para o mais antigo):")
+                    df_meus_feedbacks['Data_Hora'] = pd.to_datetime(df_meus_feedbacks['Data_Hora'])
+                    df_meus_feedbacks = df_meus_feedbacks.sort_values(by="Data_Hora", ascending=False)
+                    
+                    for idx, row in df_meus_feedbacks.iterrows():
+                        with st.container(border=True):
+                            st.write(f"**Feedback de:** {row['Gestor']} em {row['Data_Hora'].strftime('%d/%m/%Y')}")
+                            
+                            cols_fb_existentes = ['Iniciativa', 'Aprendizagem', 'Qualidade', 'Relacoes']
+                            if all(col in row for col in cols_fb_existentes):
+                                st.markdown(f"""
+                                * **Iniciativa:** {row['Iniciativa']}
+                                * **Aprendizagem:** {row['Aprendizagem']}
+                                * **Qualidade:** {row['Qualidade']}
+                                * **Relações:** {row['Relacoes']}
+                                """)
+                            
+                            if pd.notna(row['Feedback_Livre']) and row['Feedback_Livre'].strip():
+                                st.write("**Feedback Adicional:**")
+                                st.info(f"{row['Feedback_Livre']}")
+
+            else:
+                st.error("⚠️ Matrícula não encontrada na base. Verifique e tente novamente.")
+        elif confirmar and not matricula:
+            st.warning("Por favor, digite uma matrícula antes de confirmar.")
 
 # ========= NOVA PÁGINA: AVALIAÇÃO DO GESTOR =========
 elif st.session_state.pagina_selecionada == "Avaliação do Gestor":
@@ -1053,7 +1066,7 @@ elif st.session_state.pagina_selecionada == "Avaliação do Gestor":
         st.divider()
 
         try:
-            base_estagiarios = pd.read_excel(BASE_FILE)
+            base_estagiarios = df_base.copy() # Usar a base já lida
             estagiarios = sorted(base_estagiarios["COLABORADOR"].dropna().unique().tolist())
         except Exception as e:
             st.warning(f"Não foi possível carregar base de estagiários: {e}")
@@ -1212,7 +1225,7 @@ elif st.session_state.pagina_selecionada == "Administração":
                     modalidade = st.selectbox("Modalidade", ["Presencial", "Online"])
                 with col2:
                     # ATUALIZADO: Adicionado campo Unidade
-                    unidade_treinamento = st.selectbox("Unidade", ["Narandiba", "Paraguaçu Paulista"])
+                    unidade_treinamento = st.selectbox("Unidade", ["Narandiba", "Paraguaçu Paulista", "NRD", "PPT"]) # Adicionado NRD/PPT
                     local_link = st.text_input("Local (para Presencial) ou Link (para Online)")
                     hora_inicio = st.time_input("Horário de Início", time(9, 0))
                     hora_termino = st.time_input("Horário de Término", time(10, 0))
@@ -1257,7 +1270,7 @@ elif st.session_state.pagina_selecionada == "Administração":
                 "Modalidade": st.column_config.SelectboxColumn("Modalidade", options=["Presencial", "Online"]),
                 "Local_Link": st.column_config.TextColumn("Local / Link"),
                 # ATUALIZADO: Adicionada config da coluna Unidade
-                "Unidade": st.column_config.SelectboxColumn("Unidade", options=["Narandiba", "Paraguaçu Paulista"], required=True)
+                "Unidade": st.column_config.SelectboxColumn("Unidade", options=["Narandiba", "Paraguaçu Paulista", "NRD", "PPT"], required=True)
             },
             num_rows="dynamic"
         )
@@ -1299,7 +1312,7 @@ elif st.session_state.pagina_selecionada == "Administração":
         def marcar_lote_csv():
             try:
                 mes_key = trilha_mapa_reverso[mes_selecionado] 
-                df_trilha_lote = initialize_trilha()
+                df_trilha_lote = initialize_trilha(df_base) # Passar df_base
                 df_trilha_lote[mes_key] = True # Set to TRUE
                 df_trilha_lote.to_csv(TRILHA_FILE, index=False, encoding='utf-8')
                 st.success(f"Etapa '{mes_selecionado}' marcada como CONCLUÍDA para todos!")
@@ -1310,7 +1323,7 @@ elif st.session_state.pagina_selecionada == "Administração":
         def desmarcar_lote_csv():
             try:
                 mes_key = trilha_mapa_reverso[mes_selecionado] 
-                df_trilha_lote = initialize_trilha()
+                df_trilha_lote = initialize_trilha(df_base) # Passar df_base
                 df_trilha_lote[mes_key] = False # Set to FALSE
                 df_trilha_lote.to_csv(TRILHA_FILE, index=False, encoding='utf-8')
                 st.success(f"Etapa '{mes_selecionado}' marcada como PENDENTE para todos!")
@@ -1330,10 +1343,10 @@ elif st.session_state.pagina_selecionada == "Administração":
         st.info("Aqui você pode marcar as etapas concluídas individualmente.")
         
         try:
-            base_df_admin = pd.read_excel(BASE_FILE, dtype={'MATRICULA': str})
+            base_df_admin = df_base.copy() # Usar a base já lida
             base_df_admin = base_df_admin[['MATRICULA', 'COLABORADOR']]
             
-            df_trilha_admin = initialize_trilha()
+            df_trilha_admin = initialize_trilha(df_base) # Passar df_base
             
             df_trilha_display = pd.merge(base_df_admin, df_trilha_admin, 
                                          left_on='MATRICULA', right_on='Matricula', 
@@ -1479,5 +1492,6 @@ elif st.session_state.pagina_selecionada == "Administração":
                   use_container_width=True,
                   key="delete_all_atividades_btn")
     
+    # Este else pertence ao 'if password_input == ACCESS_PASSWORD:'
     elif password_input:
         st.error("Senha incorreta. Acesso Negado.")
