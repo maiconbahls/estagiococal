@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 import base64
 import os
-from datetime import datetime
+from datetime import datetime, time # Importar 'time'
 import csv
 from dateutil.relativedelta import relativedelta 
 from streamlit.errors import StreamlitAPIException
@@ -22,7 +22,9 @@ CSV_FILE = "registros.csv"
 BASE_FILE = "Base.xlsx"
 GESTOR_FILE = "gestor.xlsx"
 CSV_FEEDBACK = "feedback_gestor_programa.csv"
-TRILHA_FILE = "progresso_trilha.csv" # <--- NOVO ARQUIVO DE DADOS
+TRILHA_FILE = "progresso_trilha.csv" 
+SOMAR_FILE = "somar_ideias.xlsx" 
+TREINAMENTOS_FILE = "treinamentos.csv" 
 
 # --- Senhas ---
 try:
@@ -37,29 +39,32 @@ except KeyError:
     SENHA_GESTOR = "cocal@2025"
     ACCESS_PASSWORD = "cocal"
 
-# --- Tópicos da Trilha (Resumidos da sua imagem) ---
+# --- Tópicos da Trilha ---
 TRILHA_MESES = {
-    "Mes_1": "Mês 1: Onboarding, Integração e Cultura Cocal.",
-    "Mes_2": "Mês 2: Alinhamento com Gestor, Treinamento Somar Ideias e Engajamento.",
-    "Mes_3": "Mês 3: Feedback RH (Conversa Guiada) e Feedback com Gestor (Conhecimento na Função).",
-    "Mes_4": "Mês 4: Registro da Ideia (Somar) e Treinamento de Segurança.",
-    "Mes_5": "Mês 5: Apresentação da Ideia de Melhoria e Feedback de Desempenho (Pré-efetivação).",
-    "Mes_6": "Mês 6: Alinhamento Final (Propostas de efetivação/remanejamento)."
+    "Mes_1": "Mês 1: Onboarding, Integração (DP, TI, S.T.) e Cultura Cocal.",
+    "Mes_2": "Mês 2: Alinhamento com Gestor, Treinamento Somar Ideias e Engajamento à Cultura.",
+    "Mes_3": "Mês 3: Feedback com Gestor e Treinamento: Conhecimento na Função.",
+    "Mes_4": "Mês 4: Registro da Ideia (Somar) e Treinamento: Segurança.",
+    "Mes_5": "Mês 5: Apresentação da Ideia de Melhoria (RH/Gestor) e Feedback de Desempenho.",
+    "Mes_6": "Mês 6: Alinhamento Final (RH/Gestor) e Análise de Efetivação/Remanejamento."
 }
 COLUNAS_TRILHA = ['Matricula', 'Mes_1', 'Mes_2', 'Mes_3', 'Mes_4', 'Mes_5', 'Mes_6']
-
-# --- 2. FUNÇÕES DE APOIO (ATUALIZADAS) ---
-
-# Colunas que o CSV deve ter
 COLUNAS_REGISTROS = [
     'Data_Registro', 'Colaborador', 'Setor', 
     'Categoria_Atividade', 'Nome_Projeto', 'Data_Inicio_Projeto', 'Previsao_Conclusao',
     'Status', 'Percentual_Concluido', 'Observacoes'
 ]
 DATE_COLS_REGISTROS = ['Data_Registro', 'Data_Inicio_Projeto', 'Previsao_Conclusao']
+# --- ATUALIZADO: Colunas de Treinamento ---
+COLUNAS_TREINAMENTOS = [
+    'Nome_Treinamento', 'Data', 'Inicio', 'Termino', 'Modalidade', 'Local_Link', 'Unidade'
+]
+DATE_COLS_TREINAMENTOS = ['Data'] 
+TIME_COLS_TREINAMENTOS = ['Inicio', 'Termino'] 
 
-# ATUALIZADO: Converte datas ao ler o CSV
-def initialize_data():
+# --- 2. FUNÇÕES DE APOIO (ATUALIZADAS) ---
+
+def initialize_data(): # Registros de Atividades
     if not os.path.exists(CSV_FILE):
         df = pd.DataFrame(columns=COLUNAS_REGISTROS)
         df.to_csv(CSV_FILE, index=False, encoding='utf-8')
@@ -82,11 +87,10 @@ def initialize_data():
             st.error(f"Erro ao ler {CSV_FILE}: {e}. Pode ser necessário apagá-lo na área de Administração.")
             return pd.DataFrame(columns=COLUNAS_REGISTROS)
 
-# --- NOVA FUNÇÃO PARA INICIALIZAR A TRILHA ---
-def initialize_trilha():
+def initialize_trilha(): # Trilha de Desenvolvimento
     if not os.path.exists(TRILHA_FILE):
         try:
-            base_df = pd.read_excel(BASE_FILE, dtype=str)
+            base_df = pd.read_excel(BASE_FILE, dtype={'MATRICULA': str})
             if "MATRICULA" in base_df.columns:
                 matriculas = base_df["MATRICULA"].dropna().unique()
                 trilha_data = []
@@ -112,21 +116,67 @@ def initialize_trilha():
             st.error(f"Erro ao ler {TRILHA_FILE}: {e}")
             return pd.DataFrame(columns=COLUNAS_TRILHA)
 
+def initialize_somar(): # Somar Ideias
+    if not os.path.exists(SOMAR_FILE):
+        # st.warning(f"O arquivo '{SOMAR_FILE}' não foi encontrado. O indicador do Somar Ideias está desabilitado.")
+        # st.warning("Por favor, adicione o arquivo ao repositório do app.")
+        return pd.DataFrame()
+    else:
+        try:
+            df = pd.read_excel(SOMAR_FILE)
+            cols_necessarias = ['STATUS IDEIA', 'NOME RESPONSAVEL', 'IDEIAS ENVIADAS']
+            if not all(col in df.columns for col in cols_necessarias):
+                st.error(f"O arquivo '{SOMAR_FILE}' não contém as colunas necessárias: {cols_necessarias}")
+                return pd.DataFrame()
+            return df
+        except Exception as e:
+            st.error(f"Erro ao ler {SOMAR_FILE}: {e}")
+            return pd.DataFrame()
+
+# --- ATUALIZADO: Função de Treinamentos ---
+def initialize_treinamentos():
+    if not os.path.exists(TREINAMENTOS_FILE):
+        df = pd.DataFrame(columns=COLUNAS_TREINAMENTOS)
+        df.to_csv(TREINAMENTOS_FILE, index=False, encoding='utf-8')
+        return df
+    else:
+        try:
+            df = pd.read_csv(TREINAMENTOS_FILE)
+            if not all(col in df.columns for col in COLUNAS_TREINAMENTOS):
+                st.warning(f"O arquivo '{TREINAMENTOS_FILE}' está desatualizado. Apague-o na área de Administração.")
+                for col in COLUNAS_TREINAMENTOS:
+                    if col not in df.columns:
+                        df[col] = pd.NA
+                df = df[COLUNAS_TREINAMENTOS] # Garante a ordem e colunas corretas
+            
+            # Converter colunas de data e hora
+            for col in DATE_COLS_TREINAMENTOS:
+                df[col] = pd.to_datetime(df[col], format='%d/%m/%Y', errors='coerce')
+            # Corrigir conversão de hora
+            for col in TIME_COLS_TREINAMENTOS:
+                df[col] = pd.to_datetime(df[col], format='%H:%M:%S', errors='coerce').dt.time
+            
+            return df
+        except Exception as e:
+            st.error(f"Erro ao ler {TREINAMENTOS_FILE}: {e}")
+            return pd.DataFrame(columns=COLUNAS_TREINAMENTOS)
+
+
 def mudar_pagina(nova_pagina):
     st.session_state.pagina_selecionada = nova_pagina
 
 def delete_all_data():
     if os.path.exists(CSV_FILE):
-        df_empty = pd.DataFrame(columns=COLUNAS_REGISTROS)
-        df_empty.to_csv(CSV_FILE, index=False, encoding='utf-8')
-        st.success("✅ Todos os registros de ATIVIDADES foram apagados com sucesso!")
-    else:
-        st.warning("O arquivo de registros de atividades não existe.")
+        os.remove(CSV_FILE)
+        st.success("✅ Registros de ATIVIDADES foram apagados.")
     
-    # Apagar também o arquivo da trilha
     if os.path.exists(TRILHA_FILE):
         os.remove(TRILHA_FILE)
-        st.success("✅ Progresso de trilhas também foi reiniciado.")
+        st.success("✅ Progresso de TRILHAS foi apagado.")
+        
+    if os.path.exists(TREINAMENTOS_FILE):
+        os.remove(TREINAMENTOS_FILE)
+        st.success("✅ Calendário de TREINAMENTOS foi apagado.")
     
     st.rerun()
 
@@ -165,9 +215,9 @@ def get_home_page_css(desktop_img, mobile_img):
             display: none;
         }}
         
-        /* Fundo Padrão (Desktop) */
+        /* Fundo Padrão (MOBILE) */
         [data-testid="stAppViewContainer"] {{
-            background-image: url("data:image/{desktop_ext};base64,{desktop_bin_str}");
+            background-image: url("data:image/{mobile_ext};base64,{mobile_bin_str}");
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
@@ -204,20 +254,20 @@ def get_home_page_css(desktop_img, mobile_img):
 
         /* --- AJUSTE DE POSIÇÃO DOS BOTÕES --- */
         .button-container {{
-            /* Posição para Desktop: 55% da altura da tela */
-            margin-top: 55vh; 
+            /* Posição para Celular: 45% da altura (mais para cima) */
+            margin-top: 45vh;
         }}
         
-        /* O CSS MÁGICO: Media Query */
-        @media (max-width: 700px) {{
-            /* Fundo Mobile */
+        /* Media Query para DESKTOP (Min-width) */
+        @media (min-width: 701px) {{
+            /* Fundo Desktop */
             [data-testid="stAppViewContainer"] {{
-                background-image: url("data:image/{mobile_ext};base64,{mobile_bin_str}");
+                background-image: url("data:image/{desktop_ext};base64,{desktop_bin_str}");
             }}
-            
-            /* Posição para Celular: 45% da altura (mais para cima) */
+
+            /* Posição para Desktop: 55% da altura da tela */
             .button-container {{
-                margin-top: 45vh;
+                margin-top: 55vh; 
             }}
         }}
     </style>
@@ -227,32 +277,43 @@ def get_home_page_css(desktop_img, mobile_img):
 # --- 3. EXECUÇÃO DE CSS/FUNDO E BARRA LATERAL ---
 
 st.sidebar.title("Menu")
-# ATUALIZADO: Adicionada nova página
+# ATUALIZADO: Menu de páginas
 st.sidebar.radio(
     "Selecione a funcionalidade:",
-    ("Home", "Dashboard", "Registro de Atividade", "Trilha de Desenvolvimento", "Registro de Feedback", "Administração"),
+    ("Home", "Página do Estagiário", "Treinamentos", "Painel de Indicadores", "Avaliação do Gestor", "Administração"),
     key="pagina_selecionada"
 )
 st.sidebar.divider()
 
-if st.session_state.pagina_selecionada != "Home":
+# Carregar dados
+df_data = initialize_data()
+df_trilha = initialize_trilha() 
+df_somar = initialize_somar() # Carregar dados do Somar
+df_treinamentos = initialize_treinamentos() # Carregar dados de treinamentos
+
+# --- FILTROS SÓ NO PAINEL DE INDICADORES ---
+if st.session_state.pagina_selecionada == "Painel de Indicadores":
     st.sidebar.title("Filtros")
-    data_inicio = st.sidebar.date_input("Data Início", datetime.now().date().replace(day=1), format="DD/MM/YYYY")
-    data_fim = st.sidebar.date_input("Data Fim", format="DD/MM/YYYY")
+    data_inicio = st.sidebar.date_input("Data Início", datetime.now().date().replace(day=1), format="DD/MM/YYYY", key="filtro_data_inicio")
+    data_fim = st.sidebar.date_input("Data Fim", datetime.now().date(), format="DD/MM/YYYY", key="filtro_data_fim")
     
     try:
-        base_tmp = pd.read_excel(BASE_FILE)
+        # --- CORREÇÃO AQUI: Ler datas como datetime, mas MATRICULA como string ---
+        base_tmp = pd.read_excel(BASE_FILE, dtype={'MATRICULA': str})
         lista_estagiarios = sorted(base_tmp["COLABORADOR"].dropna().unique().tolist())
         lista_estagiarios.insert(0, "Todos")
-        filtro_estagiario_sidebar = st.sidebar.selectbox("Estagiário", lista_estagiarios)
-    except Exception:
+        filtro_estagiario_sidebar = st.sidebar.selectbox("Estagiário", lista_estagiarios, key="filtro_estagiario")
+    except Exception as e:
         st.sidebar.warning("Não foi possível carregar lista de estagiários (base.xlsx).")
         filtro_estagiario_sidebar = "Todos"
+else:
+    # Definir valores padrão para as outras páginas não quebrarem
+    data_inicio = datetime.now().date().replace(day=1)
+    data_fim = datetime.now().date()
+    filtro_estagiario_sidebar = "Todos"
 
 
 # --- 4. PÁGINAS ---
-df_data = initialize_data()
-df_trilha = initialize_trilha() # Carregar/Criar o arquivo da trilha
 
 # ========= HOME (LAYOUT ÚNICO E SIMPLIFICADO) =========
 if st.session_state.pagina_selecionada == "Home":
@@ -268,242 +329,331 @@ if st.session_state.pagina_selecionada == "Home":
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.button("📋 Registro de Atividade", use_container_width=True, on_click=mudar_pagina, args=("Registro de Atividade",), key="reg_desktop")
-        # ATUALIZADO: Botão da trilha agora funciona
-        st.button("Trilha de Desenvolvimento", use_container_width=True, key="trilha_desktop", on_click=mudar_pagina, args=("Trilha de Desenvolvimento",)) 
+        st.button("📋 Página do Estagiário", use_container_width=True, on_click=mudar_pagina, args=("Página do Estagiário",), key="reg_desktop")
+        # st.button("Trilha de Desenvolvimento", use_container_width=True, key="trilha_desktop", on_click=mudar_pagina, args=("Página do Estagiário",)) 
     with col2:
-        st.button("💬 Registro de Feedback", use_container_width=True, on_click=mudar_pagina, args=("Registro de Feedback",), key="feed_desktop")
-        st.button("Treinamentos", use_container_width=True, key="treina_desktop")
+        st.button("📊 Painel de Indicadores", use_container_width=True, on_click=mudar_pagina, args=("Painel de Indicadores",), key="gestor_desktop")
+        st.button("💬 Avaliação do Gestor", use_container_width=True, on_click=mudar_pagina, args=("Avaliação do Gestor",), key="feed_desktop")
     with col3:
-        st.button("📊 Dashboard", use_container_width=True, on_click=mudar_pagina, args=("Dashboard",), key="dash_desktop")
+        st.button("🗓️ Treinamentos", use_container_width=True, key="treina_desktop", on_click=mudar_pagina, args=("Treinamentos",))
         st.button("🔒 Administração", use_container_width=True, on_click=mudar_pagina, args=("Administração",), key="admin_desktop")
     
     st.markdown('</div>', unsafe_allow_html=True)
 
 
-# ========= DASHBOARD (ATUALIZADO COM RANKING E CORES) =========
-elif st.session_state.pagina_selecionada == "Dashboard":
+# ========= NOVA PÁGINA: PAINEL DE INDICADORES =========
+elif st.session_state.pagina_selecionada == "Painel de Indicadores":
     
     st.button("🏠 Voltar para Home", on_click=mudar_pagina, args=("Home",))
+    st.title("📊 Painel de Indicadores do Programa")
+    st.markdown("---")
     
-    st.title("📊 Relatórios de Feedback dos Gestores")
-    st.divider()
+    # --- 1. LÓGICA DE LOGIN DO GESTOR (ATUALIZADA COM st.form) ---
+    if "gestor_autenticado" not in st.session_state:
+        st.session_state.gestor_autenticado = False
+    if "dados_gestor" not in st.session_state:
+        st.session_state.dados_gestor = None
 
-    # --- 1. SEÇÃO DE FEEDBACKS ---
-    if os.path.exists(CSV_FEEDBACK):
-        df_feedback = pd.read_csv(CSV_FEEDBACK)
-    else:
-        df_feedback = pd.DataFrame() 
-
-    cols_competencias = [] 
-    
-    if not df_feedback.empty:
-        df_display_feedback = df_feedback.copy()
-        colunas_para_renomear = {'Data_Hora': 'DATA', 'Gestor': 'GESTOR'}
-        df_display_feedback.rename(columns=colunas_para_renomear, inplace=True)
-
-        if filtro_estagiario_sidebar != "Todos" and "Estagiario" in df_display_feedback.columns:
-            df_display_feedback = df_display_feedback[df_display_feedback["Estagiario"] == filtro_estagiario_sidebar]
-            df_feedback = df_feedback[df_feedback["Estagiario"] == filtro_estagiario_sidebar]
-
-        colunas_para_ocultar = ['Feedback_Livre', 'sugestao_melhoria']
-        for col in colunas_para_ocultar:
-            if col in df_display_feedback.columns:
-                df_display_feedback = df_display_feedback.drop(columns=[col])
+    if not st.session_state.gestor_autenticado:
+        st.subheader("🔐 Acesso Restrito ao Gestor")
         
-        st.subheader("Tabela de Feedbacks Recebidos")
-        st.dataframe(df_display_feedback, use_container_width=True)
-        
-        st.markdown("---")
-        st.subheader("Análise Gráfica")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("**Análise de Feedbacks (Gestores)**")
-            
-            colunas_excluir = ['DATA', 'GESTOR', 'Data_Hora', 'Gestor', 'Estagiario', 'Feedback_Livre', 'sugestao_melhoria']
-            cols_competencias = [col for col in df_feedback.columns if col not in colunas_excluir]
-            
-            if not cols_competencias or df_feedback.empty:
-                st.warning("Nenhum dado de competência (Ex: 'Iniciativa' ou 'estrutura_suporte') foi encontrado no feedback.")
-                df_grafico = pd.DataFrame() 
-            else:
-                mapa_notas = {"Excelente": 4, "Bom": 3, "Regular": 2, "Ruim": 1, None: 0}
-                mapa_cores = {
-                     'Excelente': '#76B82A', # Verde
-                     'Bom': '#30515F',      # Azul Escuro
-                     'Regular': '#B2B2B2',  # Cinza
-                     'Ruim': '#B2B2B2'      # Cinza
-                }
-                
-                df_grafico = df_feedback.copy()
-                df_pizza_data = []
-                for col in cols_competencias:
-                    if col in ['Iniciativa', 'Aprendizagem', 'Qualidade', 'Relacoes']:
-                        df_grafico[f'Nota_{col}'] = df_grafico[col].map(mapa_notas).fillna(0)
-                    
-                    contagem = df_grafico[col].value_counts().reset_index()
-                    contagem.columns = ['Avaliação', 'Contagem']
-                    df_pizza_data.append(contagem)
+        with st.form(key="gestor_login_indicadores_form"):
+            matricula = st.text_input("Digite sua matrícula:")
+            senha = st.text_input("Digite a senha:", type="password")
+            entrar = st.form_submit_button("Entrar")
 
-                if df_pizza_data:
-                    df_pizza_total = pd.concat(df_pizza_data).groupby('Avaliação').sum().reset_index()
-                    
-                    fig_pie = px.pie(df_pizza_total, names='Avaliação', values='Contagem', 
-                                     title="Distribuição Geral das Avaliações",
-                                     color='Avaliação', 
-                                     color_discrete_map=mapa_cores) 
-                    st.plotly_chart(fig_pie, use_container_width=True)
+        if entrar:
+            try:
+                base_gestor = pd.read_excel(GESTOR_FILE)
+            except Exception as e:
+                st.error(f"Erro ao carregar planilha de gestores: {e}")
+                base_gestor = pd.DataFrame(columns=["MATRICULA", "COLABORADOR"])
+
+            if matricula and senha == SENHA_GESTOR:
+                gestor = base_gestor.loc[base_gestor["MATRICULA"].astype(str) == str(matricula)]
+                if not gestor.empty:
+                    st.session_state.gestor_autenticado = True
+                    st.session_state.dados_gestor = gestor.iloc[0]
+                    st.success(f"✅ Bem-vindo, {gestor.iloc[0]['COLABORADOR']}!")
+                    st.rerun()
                 else:
-                    st.info("Sem dados para o gráfico de pizza de feedback.")
+                    st.error("❌ Matrícula não encontrada.")
+            else:
+                st.error("❌ Matrícula ou senha incorreta.")
+
+    # --- 2. SE O GESTOR ESTIVER LOGADO ---
+    if st.session_state.gestor_autenticado:
         
-        with col2:
-            st.markdown("**Status dos Projetos (Estagiários)**")
+        # --- SEÇÃO DE DASHBOARD ---
+        st.subheader("Análise de Feedbacks (Gestores)")
+        if os.path.exists(CSV_FEEDBACK):
+            df_feedback = pd.read_csv(CSV_FEEDBACK)
+        else:
+            df_feedback = pd.DataFrame() 
+
+        cols_competencias = [] 
+        
+        if not df_feedback.empty:
+            df_display_feedback = df_feedback.copy()
+            colunas_para_renomear = {'Data_Hora': 'DATA', 'Gestor': 'GESTOR'}
+            df_display_feedback.rename(columns=colunas_para_renomear, inplace=True)
+
+            if filtro_estagiario_sidebar != "Todos" and "Estagiario" in df_display_feedback.columns:
+                df_display_feedback = df_display_feedback[df_display_feedback["Estagiario"] == filtro_estagiario_sidebar]
+                df_feedback = df_feedback[df_feedback["Estagiario"] == filtro_estagiario_sidebar]
+
+            colunas_para_ocultar = ['Feedback_Livre', 'sugestao_melhoria']
+            for col in colunas_para_ocultar:
+                if col in df_display_feedback.columns:
+                    df_display_feedback = df_display_feedback.drop(columns=[col])
             
+            st.write("**Tabela de Feedbacks Recebidos**")
+            st.dataframe(df_display_feedback, use_container_width=True)
+            
+            st.markdown("---")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**Distribuição das Avaliações (Feedback)**")
+                
+                colunas_excluir = ['DATA', 'GESTOR', 'Data_Hora', 'Gestor', 'Estagiario', 'Feedback_Livre', 'sugestao_melhoria']
+                cols_competencias = [col for col in df_feedback.columns if col not in colunas_excluir]
+                
+                if not cols_competencias or df_feedback.empty:
+                    st.warning("Nenhum dado de competência (Ex: 'Iniciativa' ou 'estrutura_suporte') foi encontrado no feedback.")
+                    df_grafico = pd.DataFrame() 
+                else:
+                    mapa_notas = {"Excelente": 4, "Bom": 3, "Regular": 2, "Ruim": 1, None: 0}
+                    mapa_cores = {
+                         'Excelente': '#76B82A', 'Bom': '#30515F',
+                         'Regular': '#B2B2B2', 'Ruim': '#B2B2B2'
+                    }
+                    
+                    df_grafico = df_feedback.copy()
+                    df_pizza_data = []
+                    for col in cols_competencias:
+                        if col in ['Iniciativa', 'Aprendizagem', 'Qualidade', 'Relacoes']:
+                            df_grafico[f'Nota_{col}'] = df_grafico[col].map(mapa_notas).fillna(0)
+                        
+                        contagem = df_grafico[col].value_counts().reset_index()
+                        contagem.columns = ['Avaliação', 'Contagem']
+                        df_pizza_data.append(contagem)
+
+                    if df_pizza_data:
+                        df_pizza_total = pd.concat(df_pizza_data).groupby('Avaliação').sum().reset_index()
+                        
+                        fig_pie = px.pie(df_pizza_total, names='Avaliação', values='Contagem', 
+                                         color='Avaliação', 
+                                         color_discrete_map=mapa_cores) 
+                        st.plotly_chart(fig_pie, use_container_width=True)
+                    else:
+                        st.info("Sem dados para o gráfico de pizza de feedback.")
+            
+            with col2:
+                st.markdown("**Status dos Projetos (Estagiários)**")
+                
+                if not df_data.empty:
+                    df_projetos_unicos = df_data.sort_values(by='Data_Registro', ascending=True).drop_duplicates(subset=['Colaborador', 'Nome_Projeto'], keep='last')
+                    
+                    if filtro_estagiario_sidebar != "Todos":
+                        df_projetos_unicos = df_projetos_unicos[df_projetos_unicos['Colaborador'] == filtro_estagiario_sidebar]
+                    
+                    df_status_counts = df_projetos_unicos['Status'].value_counts().reset_index()
+                    df_status_counts.columns = ['Status', 'Contagem']
+
+                    mapa_cores_status = {
+                        'Concluído': '#76B82A', 'Iniciado': '#30515F', 'Pendente': '#B2B2B2'
+                    }
+
+                    fig_pie_status = px.pie(df_status_counts, names='Status', values='Contagem', 
+                                             color='Status',
+                                             color_discrete_map=mapa_cores_status)
+                    st.plotly_chart(fig_pie_status, use_container_width=True)
+                else:
+                    st.info("Nenhum projeto registrado.")
+
+            if not df_grafico.empty and cols_competencias:
+                cols_notas_existentes = [f'Nota_{col}' for col in cols_competencias if f'Nota_{col}' in df_grafico.columns]
+                
+                if cols_notas_existentes: 
+                    st.markdown(f"**Média por Competência ({filtro_estagiario_sidebar})**")
+                    medias = []
+                    for col_nota, col_nome in zip(cols_notas_existentes, cols_competencias):
+                        media = df_grafico[col_nota].mean()
+                        medias.append({'Competência': col_nome, 'Média': media})
+                    
+                    df_medias = pd.DataFrame(medias)
+                    
+                    fig_bar = px.bar(df_medias, x='Competência', y='Média', 
+                                     title="Média por Competência (4=Excelente, 1=Ruim)",
+                                     text=df_medias['Média'].apply(lambda x: f'{x:.2f}'),
+                                     range_y=[0, 4],
+                                     color='Média', 
+                                     color_continuous_scale=[[0, '#30515F'], [1, '#76B82A']], 
+                                     range_color=[0, 4] 
+                                    )
+                    
+                    fig_bar.update_layout(bargap=0.5)
+                    fig_bar.update_layout(coloraxis_showscale=False)
+                    
+                    st.plotly_chart(fig_bar, use_container_width=True)
+                else:
+                    st.info("O gráfico de média por competência só funciona com os novos formulários de feedback (Iniciativa, Qualidade, etc.)")
+        else:
+            st.info("Nenhum feedback registrado até o momento.")
+            df_grafico = pd.DataFrame() 
+
+        # --- SEÇÃO DE RELATÓRIO DE ATIVIDADES ---
+        st.markdown("---")
+        st.subheader("Relatório de Atividades dos Estagiários")
+        
+        if not df_data.empty:
+            try:
+                df_data_copy = df_data.copy()
+                df_filtrada = df_data_copy[
+                    (df_data_copy['Data_Registro'].dt.date >= data_inicio) &
+                    (df_data_copy['Data_Registro'].dt.date <= data_fim)
+                ]
+                if filtro_estagiario_sidebar != "Todos":
+                    df_filtrada = df_filtrada[df_filtrada['Colaborador'] == filtro_estagiario_sidebar]
+                
+                for col in DATE_COLS_REGISTROS:
+                    if col in df_filtrada.columns:
+                        df_filtrada[col] = df_filtrada[col].dt.strftime('%d/%m/%Y').replace('NaT', '')
+                
+                st.dataframe(df_filtrada, use_container_width=True)
+                st.info(f"Exibindo {len(df_filtrada)} de {len(df_data)} registros totais.")
+            except Exception as e:
+                st.error(f"Erro ao processar e filtrar os dados de atividades: {e}")
+                st.dataframe(df_data)
+        else:
+            st.info("Nenhuma atividade registrada para os filtros selecionados.")
+            
+            
+        # --- SEÇÃO: RANKING DE DESEMPENHO ---
+        st.markdown("---")
+        st.subheader("🏆 Ranking de Desempenho dos Estagiários")
+        
+        try:
+            base_estagiarios = pd.read_excel(BASE_FILE, dtype={'MATRICULA': str})
+            df_ranking = pd.DataFrame(base_estagiarios["COLABORADOR"].dropna().unique(), columns=["Estagiário"])
+
+            cols_notas_existentes = [f'Nota_{col}' for col in cols_competencias if f'Nota_{col}' in df_grafico.columns]
+            
+            if not df_grafico.empty and cols_notas_existentes: 
+                df_notas_melted = df_grafico.melt(id_vars=['Estagiario'], value_vars=cols_notas_existentes, value_name='Nota')
+                df_notas_medias = df_notas_melted.groupby('Estagiario')['Nota'].mean().reset_index()
+                df_notas_medias.rename(columns={'Estagiario': 'Estagiário', 'Nota': 'Nota Média (de 4.0)'}, inplace=True)
+                df_ranking = pd.merge(df_ranking, df_notas_medias, on="Estagiário", how="left")
+            else:
+                df_ranking["Nota Média (de 4.0)"] = 0.0
+
             if not df_data.empty:
                 df_projetos_unicos = df_data.sort_values(by='Data_Registro', ascending=True).drop_duplicates(subset=['Colaborador', 'Nome_Projeto'], keep='last')
                 
-                if filtro_estagiario_sidebar != "Todos":
-                    df_projetos_unicos = df_projetos_unicos[df_projetos_unicos['Colaborador'] == filtro_estagiario_sidebar]
+                df_concluidos = df_projetos_unicos[df_projetos_unicos['Status'] == 'Concluído'].groupby('Colaborador')['Nome_Projeto'].count().reset_index()
+                df_concluidos.rename(columns={'Colaborador': 'Estagiário', 'Nome_Projeto': 'Projetos Concluídos'}, inplace=True)
+                df_ranking = pd.merge(df_ranking, df_concluidos, on="Estagiário", how="left")
+
+                hoje = pd.to_datetime(datetime.now().date())
+                df_atrasados = df_projetos_unicos[
+                    (df_projetos_unicos['Status'].isin(['Iniciado', 'Pendente'])) &
+                    (df_projetos_unicos['Previsao_Conclusao'] < hoje)
+                ].groupby('Colaborador')['Nome_Projeto'].count().reset_index()
+                df_atrasados.rename(columns={'Colaborador': 'Estagiário', 'Nome_Projeto': 'Projetos Atrasados'}, inplace=True)
+                df_ranking = pd.merge(df_ranking, df_atrasados, on="Estagiário", how="left")
                 
-                df_status_counts = df_projetos_unicos['Status'].value_counts().reset_index()
-                df_status_counts.columns = ['Status', 'Contagem']
-
-                mapa_cores_status = {
-                    'Concluído': '#76B82A', # Verde (Cocal)
-                    'Iniciado': '#30515F',  # Azul Escuro (Cocal)
-                    'Pendente': '#B2B2B2'   # Cinza (Cocal)
-                }
-
-                fig_pie_status = px.pie(df_status_counts, names='Status', values='Contagem', 
-                                         title="Distribuição Geral de Status de Projetos",
-                                         color='Status',
-                                         color_discrete_map=mapa_cores_status)
-                st.plotly_chart(fig_pie_status, use_container_width=True)
             else:
-                st.info("Nenhum projeto registrado.")
+                df_ranking["Projetos Concluídos"] = 0
+                df_ranking["Projetos Atrasados"] = 0
 
-        if not df_grafico.empty and cols_competencias:
-            cols_notas_existentes = [f'Nota_{col}' for col in cols_competencias if f'Nota_{col}' in df_grafico.columns]
+            df_ranking.fillna(0, inplace=True)
+            df_ranking = df_ranking.sort_values(by=["Nota Média (de 4.0)", "Projetos Concluídos", "Projetos Atrasados"], ascending=[False, False, True])
             
-            if cols_notas_existentes: 
-                st.markdown(f"**Média por Competência ({filtro_estagiario_sidebar})**")
-                medias = []
-                for col_nota, col_nome in zip(cols_notas_existentes, cols_competencias):
-                    media = df_grafico[col_nota].mean()
-                    medias.append({'Competência': col_nome, 'Média': media})
-                
-                df_medias = pd.DataFrame(medias)
-                
-                fig_bar = px.bar(df_medias, x='Competência', y='Média', 
-                                 title="Média por Competência (4=Excelente, 1=Ruim)",
-                                 text=df_medias['Média'].apply(lambda x: f'{x:.2f}'),
-                                 range_y=[0, 4],
-                                 color='Média', 
-                                 color_continuous_scale=[[0, '#30515F'], [1, '#76B82A']], 
-                                 range_color=[0, 4] 
-                                )
-                
-                fig_bar.update_layout(bargap=0.5)
-                fig_bar.update_layout(coloraxis_showscale=False)
-                
-                st.plotly_chart(fig_bar, use_container_width=True)
-            else:
-                st.info("O gráfico de média por competência só funciona com os novos formulários de feedback (Iniciativa, Qualidade, etc.)")
-    else:
-        st.info("Nenhum feedback registrado até o momento.")
-        df_grafico = pd.DataFrame() 
+            st.dataframe(df_ranking, use_container_width=True,
+                         column_config={
+                             "Nota Média (de 4.0)": st.column_config.NumberColumn(format="%.2f ⭐"),
+                             "Projetos Atrasados": st.column_config.NumberColumn(format="%d ⚠️")
+                         })
 
-    # --- 2. SEÇÃO DE RELATÓRIO DE ATIVIDADES ---
-    st.markdown("---")
-    st.title("📋 Relatório de Atividades dos Estagiários")
-    
-    if not df_data.empty:
-        try:
-            df_data_copy = df_data.copy()
-            df_filtrada = df_data_copy[
-                (df_data_copy['Data_Registro'].dt.date >= data_inicio) &
-                (df_data_copy['Data_Registro'].dt.date <= data_fim)
-            ]
-            if filtro_estagiario_sidebar != "Todos":
-                df_filtrada = df_filtrada[df_filtrada['Colaborador'] == filtro_estagiario_sidebar]
-            
-            for col in DATE_COLS_REGISTROS:
-                if col in df_filtrada.columns:
-                    df_filtrada[col] = df_filtrada[col].dt.strftime('%d/%m/%Y').replace('NaT', '')
-            
-            st.dataframe(df_filtrada, use_container_width=True)
-            st.info(f"Exibindo {len(df_filtrada)} de {len(df_data)} registros totais.")
         except Exception as e:
-            st.error(f"Erro ao processar e filtrar os dados de atividades: {e}")
-            st.dataframe(df_data)
-    else:
-        st.info("Nenhuma atividade registrada para os filtros selecionados.")
-        
-        
-    # --- 3. NOVA SEÇÃO: RANKING DE DESEMPENHO ---
-    st.markdown("---")
-    st.title("🏆 Ranking de Desempenho dos Estagiários")
-    st.info("Esta tabela combina os feedbacks dos gestores com a entrega de projetos para classificar o desempenho.")
-
-    try:
-        base_estagiarios = pd.read_excel(BASE_FILE)
-        df_ranking = pd.DataFrame(base_estagiarios["COLABORADOR"].dropna().unique(), columns=["Estagiário"])
-
-        cols_notas_existentes = [f'Nota_{col}' for col in cols_competencias if f'Nota_{col}' in df_grafico.columns]
-        
-        if not df_grafico.empty and cols_notas_existentes: 
-            df_notas_melted = df_grafico.melt(id_vars=['Estagiario'], value_vars=cols_notas_existentes, value_name='Nota')
-            df_notas_medias = df_notas_melted.groupby('Estagiario')['Nota'].mean().reset_index()
-            df_notas_medias.rename(columns={'Estagiario': 'Estagiário', 'Nota': 'Nota Média (de 4.0)'}, inplace=True)
-            df_ranking = pd.merge(df_ranking, df_notas_medias, on="Estagiário", how="left")
-        else:
-            df_ranking["Nota Média (de 4.0)"] = 0.0
-
-        if not df_data.empty:
-            df_projetos_unicos = df_data.sort_values(by='Data_Registro', ascending=True).drop_duplicates(subset=['Colaborador', 'Nome_Projeto'], keep='last')
+            st.error(f"Ocorreu um erro ao gerar o ranking de desempenho: {e}")
             
-            df_concluidos = df_projetos_unicos[df_projetos_unicos['Status'] == 'Concluído'].groupby('Colaborador')['Nome_Projeto'].count().reset_index()
-            df_concluidos.rename(columns={'Colaborador': 'Estagiário', 'Nome_Projeto': 'Projetos Concluídos'}, inplace=True)
-            df_ranking = pd.merge(df_ranking, df_concluidos, on="Estagiário", how="left")
-
-            hoje = pd.to_datetime(datetime.now().date())
-            df_atrasados = df_projetos_unicos[
-                (df_projetos_unicos['Status'].isin(['Iniciado', 'Pendente'])) &
-                (df_projetos_unicos['Previsao_Conclusao'] < hoje)
-            ].groupby('Colaborador')['Nome_Projeto'].count().reset_index()
-            df_atrasados.rename(columns={'Colaborador': 'Estagiário', 'Nome_Projeto': 'Projetos Atrasados'}, inplace=True)
-            df_ranking = pd.merge(df_ranking, df_atrasados, on="Estagiário", how="left")
-            
-        else:
-            df_ranking["Projetos Concluídos"] = 0
-            df_ranking["Projetos Atrasados"] = 0
-
-        df_ranking.fillna(0, inplace=True)
-        df_ranking = df_ranking.sort_values(by=["Nota Média (de 4.0)", "Projetos Concluídos", "Projetos Atrasados"], ascending=[False, False, True])
+        # --- SEÇÃO: INDICADOR SOMAR IDEIAS ---
+        st.markdown("---")
+        st.subheader("💡 Indicador do Programa Somar Ideias")
         
-        st.dataframe(df_ranking, use_container_width=True,
-                     column_config={
-                         "Nota Média (de 4.0)": st.column_config.NumberColumn(format="%.2f ⭐"),
-                         "Projetos Atrasados": st.column_config.NumberColumn(format="%d ⚠️")
-                     })
+        if df_somar.empty:
+            st.info("O indicador do Somar Ideias não pôde ser carregado. Verifique o arquivo 'somar_ideias.xlsx'.")
+        else:
+            try:
+                # Agrupar por responsável e status, somando as ideias
+                df_somar_grouped = df_somar.groupby(['NOME RESPONSAVEL', 'STATUS IDEIA'])['IDEIAS ENVIADAS'].sum().reset_index()
+                
+                # Pivotar para ter status como colunas
+                df_somar_pivot = df_somar_grouped.pivot_table(index='NOME RESPONSAVEL', 
+                                                              columns='STATUS IDEIA', 
+                                                              values='IDEIAS ENVIADAS', 
+                                                              aggfunc='sum').fillna(0)
+                
+                # Calcular o Total
+                df_somar_pivot['Total Ideias'] = df_somar_pivot.sum(axis=1)
+                
+                # Juntar com a base de estagiários para incluir quem não enviou
+                base_estagiarios_nomes = base_estagiarios[['COLABORADOR']].drop_duplicates()
+                df_somar_final = pd.merge(base_estagiarios_nomes, df_somar_pivot, 
+                                          left_on='COLABORADOR', right_on='NOME RESPONSAVEL', 
+                                          how='left').fillna(0)
+                
+                df_somar_final.rename(columns={'COLABORADOR': 'Estagiário'}, inplace=True)
+                
+                # Aplicar filtro da sidebar
+                if filtro_estagiario_sidebar != "Todos":
+                    df_somar_final = df_somar_final[df_somar_final['Estagiário'] == filtro_estagiario_sidebar]
+                    df_somar_grouped = df_somar_grouped[df_somar_grouped['NOME RESPONSAVEL'] == filtro_estagiario_sidebar]
+                
+                
+                st.write("**Tabela Resumo - Somar Ideias**")
+                st.dataframe(df_somar_final, use_container_width=True)
+                
+                # Gráfico de Barras do Somar
+                st.write("**Gráfico - Total de Ideias por Estagiário**")
+                
+                mapa_cores_somar = {
+                    'IMPLEMENTADA': '#76B82A',
+                    'EM EXECUÇÃO': '#30515F',
+                    'EM ANÁLISE': '#B2B2B2',
+                    'REJEITADA': '#E00000' # Um vermelho para rejeitada
+                }
+                
+                # Precisamos do df_somar_grouped (antes de pivotar) para o gráfico de barras empilhadas
+                fig_somar = px.bar(df_somar_grouped, 
+                                   x='NOME RESPONSAVEL', 
+                                   y='IDEIAS ENVIADAS', 
+                                   color='STATUS IDEIA',
+                                   title='Ideias Enviadas por Estagiário e Status',
+                                   color_discrete_map=mapa_cores_somar,
+                                   labels={'NOME RESPONSAVEL': 'Estagiário', 'IDEIAS ENVIADAS': 'Quantidade de Ideias'})
+                
+                st.plotly_chart(fig_somar, use_container_width=True)
 
-    except Exception as e:
-        st.error(f"Ocorreu um erro ao gerar o ranking de desempenho: {e}")
+            except Exception as e:
+                st.error(f"Ocorreu um erro ao processar os dados do Somar Ideias: {e}")
 
 
-# ========= REGISTRO DE ATIVIDADE =========
-elif st.session_state.pagina_selecionada == "Registro de Atividade":
+# ========= PÁGINA DO ESTAGIÁRIO (REGISTRO + TRILHA + FEEDBACKS) =========
+elif st.session_state.pagina_selecionada == "Página do Estagiário":
     
     st.button("🏠 Voltar para Home", on_click=mudar_pagina, args=("Home",))
     
-    st.title("📋 Registro de Atividade")
+    st.title("👨‍🎓 Página do Estagiário")
 
     try:
-        base = pd.read_excel(BASE_FILE, dtype=str)
+        # --- CORREÇÃO AQUI: Ler datas como datetime, mas MATRICULA como string ---
+        base = pd.read_excel(BASE_FILE, dtype={'MATRICULA': str})
     except Exception as e:
         st.warning(f"Não foi possível carregar {BASE_FILE}: {e}")
-        base = pd.DataFrame(columns=["MATRICULA", "COLABORADOR", "DESCRIÇÃO LOCAL", "UNIDADE"])
+        base = pd.DataFrame(columns=["MATRICULA", "COLABORADOR", "DESCRIÇÃO LOCAL", "UNIDADE", "ADMISSAO", "TERMINO CONTRATO"])
 
     try:
         if "DESCRIÇÃO LOCAL" in base.columns:
@@ -516,23 +666,71 @@ elif st.session_state.pagina_selecionada == "Registro de Atividade":
     lista_setores.append("Outros") 
 
     st.write("Digite sua matrícula para continuar:")
-    matricula = st.text_input("Matrícula", key="matricula_input")
+    
+    # --- ATUALIZADO: Login com st.form ---
+    with st.form(key="estagiario_login_form"):
+        matricula = st.text_input("Matrícula", key="matricula_input")
+        confirmar = st.form_submit_button("Confirmar matrícula")
 
-    confirmar = st.button("Confirmar matrícula")
-
-    if confirmar and matricula:
-        st.session_state["matricula_digitada"] = matricula
+    if confirmar:
+        if matricula:
+            st.session_state["matricula_digitada"] = matricula
+            st.rerun() # Força o recarregamento da página com a matrícula
+        else:
+            st.warning("Por favor, digite uma matrícula antes de confirmar.")
 
     if st.session_state.get("matricula_digitada"):
-        matricula = st.session_state["matricula_digitada"]
-        estagiario = base.loc[base["MATRICULA"].astype(str) == str(matricula)] if "MATRICULA" in base.columns else pd.DataFrame()
+        # --- CORREÇÃO AQUI: Não precisa mais de .astype() ---
+        estagiario = base.loc[base["MATRICULA"] == str(matricula)] if "MATRICULA" in base.columns else pd.DataFrame()
 
         if not estagiario.empty:
             nome = estagiario["COLABORADOR"].values[0]
             setor_estagiario = estagiario["DESCRIÇÃO LOCAL"].values[0] 
-            unidade = estagiario["UNIDADE"].values[0]
-            st.success(f"Bem-vindo(a), **{nome}** ({setor_estagiario} - {unidade}) 👋")
             
+            # --- ATUALIZAÇÃO IMPORTANTE ---
+            # Garantir que a coluna UNIDADE existe
+            if "UNIDADE" not in estagiario.columns:
+                st.error("A coluna 'UNIDADE' não foi encontrada no Base.xlsx. Não consigo filtrar os treinamentos.")
+                unidade = "N/A" # Definir um padrão para evitar que o app quebre
+            else:
+                unidade = estagiario["UNIDADE"].values[0] # <--- PEGAMOS A UNIDADE AQUI
+            
+            st.success(f"Bem-vindo(a), **{nome.split()[0]}** ({setor_estagiario} - {unidade}) 👋")
+            
+            # --- 6. 🔔 MEUS PRÓXIMOS TREINAMENTOS (NOVO) ---
+            st.subheader(f"🔔 Próximos Treinamentos ({unidade})")
+            
+            hoje = datetime.now().date()
+            # Filtra treinamentos futuros E pela unidade do estagiário
+            df_treinamentos_filtrados = df_treinamentos[
+                (df_treinamentos['Data'].dt.date >= hoje) &
+                (df_treinamentos['Unidade'] == unidade)
+            ].copy()
+            
+            if df_treinamentos_filtrados.empty:
+                st.info(f"Nenhum treinamento agendado para sua unidade ({unidade}) no momento.")
+            else:
+                df_treinamentos_filtrados.sort_values(by='Data', ascending=True, inplace=True)
+                st.warning("Você tem treinamentos agendados! Veja abaixo:")
+                
+                for idx, row in df_treinamentos_filtrados.iterrows():
+                    with st.container(border=True):
+                        st.subheader(f"📍 {row['Nome_Treinamento']}")
+                        st.caption(f"**🗓️ Data:** {row['Data'].strftime('%d/%m/%Y')}")
+                        st.caption(f"**⏰ Horário:** {row['Inicio'].strftime('%H:%M')} - {row['Termino'].strftime('%H:%M')}")
+                        st.caption(f"**💻 Modalidade:** {row['Modalidade']}")
+                        
+                        if row['Modalidade'] == "Presencial":
+                            st.caption(f"**📍 Local:** {row['Local_Link']}")
+                        else:
+                            if str(row['Local_Link']).startswith('http'):
+                                st.link_button("Acessar Link", row['Local_Link'])
+                            else:
+                                st.caption(f"**🔗 Link:** {row['Local_Link']}")
+            
+            st.divider()
+            # --- FIM DA NOVA SEÇÃO ---
+
             # --- 1. FORMULÁRIO PARA CRIAR NOVOS PROJETOS ---
             st.subheader("1. Registrar um Novo Projeto")
             with st.expander("Clique aqui para abrir o formulário de novo projeto"):
@@ -658,73 +856,91 @@ elif st.session_state.pagina_selecionada == "Registro de Atividade":
                     st.error(f"Ocorreu um erro ao carregar seu editor de projetos: {e}")
                     st.error("Se o problema persistir, apague o 'registros.csv' na página de Administração.")
 
-        else:
-            st.error("⚠️ Matrícula não encontrada na base. Verifique e tente novamente.")
-    elif confirmar and not matricula:
-        st.warning("Por favor, digite uma matrícula antes de confirmar.")
+            st.divider()
 
-# ========= NOVA PÁGINA: TRILHA DE DESENVOLVIMENTO =========
-elif st.session_state.pagina_selecionada == "Trilha de Desenvolvimento":
-    
-    st.button("🏠 Voltar para Home", on_click=mudar_pagina, args=("Home",))
-    st.title("🌱 Trilha de Desenvolvimento do Estagiário")
-    st.markdown("---")
-
-    try:
-        base = pd.read_excel(BASE_FILE, dtype=str)
-    except Exception as e:
-        st.warning(f"Não foi possível carregar {BASE_FILE}: {e}")
-        base = pd.DataFrame(columns=["MATRICULA", "COLABORADOR", "DESCRIÇÃO LOCAL", "UNIDADE", "ADMISSAO"]) 
-
-    # Carregar o progresso da trilha
-    df_trilha_progresso = initialize_trilha()
-
-    st.write("Digite sua matrícula para ver sua trilha:")
-    matricula = st.text_input("Matrícula", key="trilha_matricula_input")
-    confirmar = st.button("Confirmar matrícula")
-
-    if confirmar and matricula:
-        st.session_state["trilha_matricula_digitada"] = matricula
-
-    if st.session_state.get("trilha_matricula_digitada"):
-        matricula = st.session_state["trilha_matricula_digitada"]
-        
-        # --- CORREÇÃO AQUI ---
-        coluna_admissao = "ADMISSAO" # <--- Nome exato da sua coluna
-        
-        if coluna_admissao not in base.columns:
-            st.error(f"Erro: A coluna '{coluna_admissao}' não foi encontrada no arquivo 'Base.xlsx'. Verifique o nome da coluna.")
-        else:
-            estagiario = base.loc[base["MATRICULA"].astype(str) == str(matricula)]
+            # --- 3. DASHBOARD PESSOAL (NOVO) ---
+            st.subheader("3. Meu Desempenho (Projetos)")
             
-            if not estagiario.empty:
-                nome = estagiario["COLABORADOR"].values[0]
-                st.subheader(f"Olá, {nome}! Esta é a sua trilha de 6 meses.")
+            if not df_registros_estagiario.empty:
+                df_meus_projetos_unicos = df_registros_estagiario.sort_values(by='Data_Registro', ascending=True).drop_duplicates(subset=['Nome_Projeto'], keep='last')
                 
+                # Métricas
+                hoje = pd.to_datetime(datetime.now().date())
+                df_meus_ativos = df_meus_projetos_unicos[df_meus_projetos_unicos['Status'].isin(['Iniciado', 'Pendente'])]
+                df_meus_concluidos = df_meus_projetos_unicos[df_meus_projetos_unicos['Status'] == 'Concluído']
+                df_meus_atrasados = df_meus_ativos[df_meus_ativos['Previsao_Conclusao'] < hoje]
+
+                col1_m, col2_m, col3_m = st.columns(3)
+                col1_m.metric("Meus Projetos Ativos", len(df_meus_ativos))
+                col2_m.metric("Meus Projetos Concluídos", len(df_meus_concluidos))
+                col3_m.metric("Meus Projetos Atrasados", len(df_meus_atrasados))
+
+                # Gráfico de Pizza Pessoal
+                df_status_counts = df_meus_projetos_unicos['Status'].value_counts().reset_index()
+                df_status_counts.columns = ['Status', 'Contagem']
+                mapa_cores_status = {
+                    'Concluído': '#76B82A', 'Iniciado': '#30515F', 'Pendente': '#B2B2B2'
+                }
+                fig_pie_meus_status = px.pie(df_status_counts, names='Status', values='Contagem', 
+                                             title="Status dos Meus Projetos",
+                                             color='Status',
+                                             color_discrete_map=mapa_cores_status)
+                st.plotly_chart(fig_pie_meus_status, use_container_width=True)
+
+            else:
+                st.info("Assim que você registrar seu primeiro projeto, seus indicadores aparecerão aqui.")
+            
+            st.divider()
+
+            # --- 4. TRILHA DE DESENVOLVIMENTO (MOVIDA PARA CÁ) ---
+            st.subheader("4. Minha Trilha de Desenvolvimento")
+            
+            coluna_admissao = "ADMISSAO" 
+            coluna_termino = "TERMINO CONTRATO" # <--- NOVA COLUNA
+            
+            if coluna_admissao not in base.columns or coluna_termino not in base.columns:
+                st.error(f"Erro: As colunas '{coluna_admissao}' ou '{coluna_termino}' não foram encontradas no arquivo 'Base.xlsx'.")
+            else:
                 try:
                     data_admissao_str = estagiario[coluna_admissao].values[0]
-                    # Tentar converter a data (pode estar como texto ou número do Excel)
-                    data_admissao = pd.to_datetime(data_admissao_str, errors='coerce')
+                    # --- CORREÇÃO AQUI: Forçar formato BR ---
+                    data_admissao = pd.to_datetime(data_admissao_str, errors='coerce', format='%d/%m/%Y') 
+                    
+                    data_termino_str = estagiario[coluna_termino].values[0]
+                    # --- CORREÇÃO AQUI: Forçar formato BR ---
+                    data_termino = pd.to_datetime(data_termino_str, errors='coerce', format='%d/%m/%Y') 
 
-                    if pd.isna(data_admissao):
-                        st.error("Sua data de admissão não foi encontrada ou está em formato incorreto.")
+                    if pd.isna(data_admissao) or pd.isna(data_termino):
+                        st.error("Sua data de admissão ou término não foi encontrada ou está em formato incorreto.")
                     else:
-                        st.write(f"**Sua jornada começou em:** {data_admissao.strftime('%d/%m/%Y')}")
+                        # --- NOVO BLOCO DE MÉTRICAS DE CONTRATO ---
+                        hoje_dt = datetime.now()
+                        dias_para_termino = (data_termino - hoje_dt).days
                         
-                        # Buscar o progresso
-                        progresso = df_trilha_progresso[df_trilha_progresso['Matricula'] == matricula]
+                        col1_data, col2_data, col3_data = st.columns(3)
+                        col1_data.metric("Data de Início", data_admissao.strftime('%d/%m/%Y'))
+                        col2_data.metric("Data de Término", data_termino.strftime('%d/%m/%Y'))
+                        if dias_para_termino > 0:
+                            col3_data.metric("Dias Restantes de Contrato", f"{dias_para_termino} dias")
+                        else:
+                            col3_data.metric("Contrato Encerrado", "🏁")
+                        
+                        progresso = df_trilha[df_trilha['Matricula'] == matricula]
                         
                         if progresso.empty:
                             st.warning("Seu progresso na trilha ainda não foi iniciado pelo RH.")
                         else:
-                            progresso = progresso.iloc[0] # Pega a primeira linha
+                            progresso = progresso.iloc[0] 
                             
-                            hoje = datetime.now()
-                            
-                            # --- LÓGICA DO PROGRESSO VISUAL ---
                             meses_completos = progresso[['Mes_1', 'Mes_2', 'Mes_3', 'Mes_4', 'Mes_5', 'Mes_6']].sum()
                             percentual_completo = int((meses_completos / 6) * 100)
-                            st.progress(percentual_completo, text=f"{percentual_completo}% Concluído")
+                            
+                            if percentual_completo == 100:
+                                st.progress(percentual_completo, text="Trilha Concluída! 🎉")
+                            else:
+                                st.progress(percentual_completo, text=f"{percentual_completo}% Concluído")
+
+                            st.markdown("---")
                             
                             etapa_atual_encontrada = False
                             
@@ -735,36 +951,66 @@ elif st.session_state.pagina_selecionada == "Trilha de Desenvolvimento":
                                 data_limite = data_admissao + relativedelta(months=i)
                                 
                                 if mes_concluido:
-                                    st.success(f"✅ **{mes_descricao}** (Concluído!)", icon="✅")
+                                    st.success(f"**{mes_descricao}** (Concluído!)", icon="✅")
                                 else:
-                                    # Se não está concluído, vamos ver se é a etapa atual ou se está atrasada
                                     if not etapa_atual_encontrada:
-                                        # É a primeira etapa não concluída, logo é a atual
-                                        if hoje > data_limite:
+                                        if hoje_dt > data_limite:
                                             st.error(f"🚨 **{mes_descricao}** (Prazo: {data_limite.strftime('%d/%m/%Y')} - PENDENTE)", icon="🚨")
                                         else:
                                             st.info(f"⏳ **{mes_descricao}** (Prazo: {data_limite.strftime('%d/%m/%Y')} - ETAPA ATUAL)", icon="⏳")
                                         etapa_atual_encontrada = True
                                     else:
-                                        # Etapa futura
                                         st.caption(f"🔘 {mes_descricao} (Prazo: {data_limite.strftime('%d/%m/%Y')})")
                             
                 except Exception as e:
                     st.error(f"Ocorreu um erro ao calcular sua trilha: {e}")
 
+            st.divider()
+
+            # --- 5. MEUS FEEDBACKS RECEBIDOS (NOVO) ---
+            st.subheader("5. Meus Feedbacks Recebidos")
+            
+            if os.path.exists(CSV_FEEDBACK):
+                df_meus_feedbacks = pd.read_csv(CSV_FEEDBACK)
+                df_meus_feedbacks = df_meus_feedbacks[df_meus_feedbacks['Estagiario'] == nome]
             else:
-                st.error("⚠️ Matrícula não encontrada na base. Verifique e tente novamente.")
+                df_meus_feedbacks = pd.DataFrame()
+
+            if df_meus_feedbacks.empty:
+                st.info("Você ainda não recebeu nenhum feedback oficial do seu gestor.")
+            else:
+                st.write("Aqui estão os feedbacks que você recebeu (do mais recente para o mais antigo):")
+                df_meus_feedbacks['Data_Hora'] = pd.to_datetime(df_meus_feedbacks['Data_Hora'])
+                df_meus_feedbacks = df_meus_feedbacks.sort_values(by="Data_Hora", ascending=False)
                 
+                for idx, row in df_meus_feedbacks.iterrows():
+                    with st.container(border=True):
+                        st.write(f"**Feedback de:** {row['Gestor']} em {row['Data_Hora'].strftime('%d/%m/%Y')}")
+                        
+                        cols_fb_existentes = ['Iniciativa', 'Aprendizagem', 'Qualidade', 'Relacoes']
+                        if all(col in row for col in cols_fb_existentes):
+                            st.markdown(f"""
+                            * **Iniciativa:** {row['Iniciativa']}
+                            * **Aprendizagem:** {row['Aprendizagem']}
+                            * **Qualidade:** {row['Qualidade']}
+                            * **Relações:** {row['Relacoes']}
+                            """)
+                        
+                        if pd.notna(row['Feedback_Livre']) and row['Feedback_Livre'].strip():
+                            st.write("**Feedback Adicional:**")
+                            st.info(f"{row['Feedback_Livre']}")
+
+        else:
+            st.error("⚠️ Matrícula não encontrada na base. Verifique e tente novamente.")
     elif confirmar and not matricula:
         st.warning("Por favor, digite uma matrícula antes de confirmar.")
 
-
-# ========= REGISTRO DE FEEDBACK =========
-elif st.session_state.pagina_selecionada == "Registro de Feedback":
+# ========= NOVA PÁGINA: AVALIAÇÃO DO GESTOR =========
+elif st.session_state.pagina_selecionada == "Avaliação do Gestor":
     
     st.button("🏠 Voltar para Home", on_click=mudar_pagina, args=("Home",))
     
-    st.title("💬 Registro de Feedback do Gestor")
+    st.title("💬 Avaliação do Gestor")
     st.markdown("---")
     
     if "gestor_autenticado" not in st.session_state:
@@ -774,10 +1020,14 @@ elif st.session_state.pagina_selecionada == "Registro de Feedback":
 
     if not st.session_state.gestor_autenticado:
         st.subheader("🔐 Acesso Restrito ao Gestor")
-        matricula = st.text_input("Digite sua matrícula:")
-        senha = st.text_input("Digite a senha:", type="password")
+        
+        # --- ATUALIZADO: Login com st.form ---
+        with st.form(key="gestor_login_avaliacao_form"):
+            matricula = st.text_input("Digite sua matrícula:")
+            senha = st.text_input("Digite a senha:", type="password")
+            entrar = st.form_submit_button("Entrar")
 
-        if st.button("Entrar"):
+        if entrar:
             try:
                 base_gestor = pd.read_excel(GESTOR_FILE)
             except Exception as e:
@@ -811,38 +1061,34 @@ elif st.session_state.pagina_selecionada == "Registro de Feedback":
 
         with st.form("form_feedback"):
             st.subheader("Selecione o estagiário avaliado:")
-            estagiario = st.selectbox("Estagiário:", estagiarios)
+            estagiario_fb = st.selectbox("Estagiário:", estagiarios, key="fb_estagiario")
 
             st.markdown("### 1️⃣ Iniciativa e Proatividade")
             iniciativa = st.radio(
                 "O estagiário demonstra iniciativa para buscar tarefas, sugerir melhorias e resolver problemas de forma autônoma?",
                 ["Excelente", "Bom", "Regular", "Ruim"],
-                horizontal=True
-            )
+                horizontal=True, key="fb_1")
             st.markdown("### 2️⃣ Capacidade de Aprendizagem e Adaptação")
             aprendizagem = st.radio(
                 "Com que rapidez o estagiário absorve novos conhecimentos e se adapta a mudanças na rotina?",
                 ["Excelente", "Bom", "Regular", "Ruim"],
-                horizontal=True
-            )
+                horizontal=True, key="fb_2")
             st.markdown("### 3️⃣ Qualidade e Entrega das Atividades")
             qualidade = st.radio(
                 "Qual o nível de precisão, atenção aos detalhes e cumprimento dos prazos nas tarefas atribuídas?",
                 ["Excelente", "Bom", "Regular", "Ruim"],
-                horizontal=True
-            )
+                horizontal=True, key="fb_3")
             st.markdown("### 4️⃣ Relações Interpessoais e Feedback")
             relacoes = st.radio(
                 "O estagiário se comunica de forma clara, trabalha bem em equipe e aplica feedbacks recebidos?",
                 ["Excelente", "Bom", "Regular", "Ruim"],
-                horizontal=True
-            )
+                horizontal=True, key="fb_4")
             st.markdown("### 5️⃣ Registre seu feedback sobre o estagiário:")
-            sugestao = st.text_area("Escreva aqui o feedback livre:")
+            sugestao = st.text_area("Escreva aqui o feedback livre:", key="fb_sugestao")
             enviar = st.form_submit_button("💾 Enviar Feedback")
 
             if enviar:
-                if not estagiario:
+                if not estagiario_fb:
                     st.warning("Por favor, selecione um estagiário.")
                 else:
                     if not os.path.exists(CSV_FEEDBACK):
@@ -859,7 +1105,7 @@ elif st.session_state.pagina_selecionada == "Registro de Feedback":
                         writer.writerow([
                             data_hora,
                             gestor.get('COLABORADOR',''),
-                            estagiario,
+                            estagiario_fb,
                             iniciativa,
                             aprendizagem,
                             qualidade,
@@ -868,6 +1114,64 @@ elif st.session_state.pagina_selecionada == "Registro de Feedback":
                         ])
                     st.success("✅ Feedback registrado com sucesso!")
 
+
+# ========= NOVA PÁGINA: TREINAMENTOS =========
+elif st.session_state.pagina_selecionada == "Treinamentos":
+    
+    st.button("🏠 Voltar para Home", on_click=mudar_pagina, args=("Home",))
+    st.title("🗓️ Agenda de Treinamentos")
+    st.markdown("---")
+
+    if df_treinamentos.empty:
+        st.info("Nenhum treinamento cadastrado no momento.")
+    else:
+        # Filtrar apenas treinamentos futuros
+        hoje = datetime.now().date()
+        # Corrigir filtro para datas (precisa converter a coluna 'Data' para date)
+        df_treinamentos_futuros = df_treinamentos[df_treinamentos['Data'].dt.date >= hoje].copy()
+        
+        if df_treinamentos_futuros.empty:
+            st.info("Nenhum treinamento futuro agendado no momento.")
+        else:
+            # Ordenar por data
+            df_treinamentos_futuros.sort_values(by='Data', ascending=True, inplace=True)
+            
+            st.subheader("Próximos Eventos:")
+            
+            # Agrupar por data para um visual de agenda
+            datas_unicas = df_treinamentos_futuros['Data'].dt.date.unique()
+            
+            for data in datas_unicas:
+                # Mostrar a data como um cabeçalho
+                st.markdown(f"### {data.strftime('%d/%m/%Y')}")
+                treinamentos_do_dia = df_treinamentos_futuros[df_treinamentos_futuros['Data'].dt.date == data]
+                
+                # Criar colunas para os cartões
+                cols = st.columns(3) 
+                col_idx = 0
+                
+                for idx, row in treinamentos_do_dia.iterrows():
+                    with cols[col_idx % 3]: # Loop de 0 a 2
+                        with st.container(border=True):
+                            st.subheader(f"📍 {row['Nome_Treinamento']}")
+                            
+                            # Usar st.caption para texto menor e ícones
+                            st.caption(f"**⏰ Horário:** {row['Inicio'].strftime('%H:%M')} - {row['Termino'].strftime('%H:%M')}")
+                            st.caption(f"**🏢 Unidade:** {row['Unidade']}")
+                            st.caption(f"**💻 Modalidade:** {row['Modalidade']}")
+                            
+                            if row['Modalidade'] == "Presencial":
+                                st.caption(f"**📍 Local:** {row['Local_Link']}")
+                            else:
+                                # Se for Online, tenta criar um link clicável
+                                if str(row['Local_Link']).startswith('http'):
+                                    st.link_button("Acessar Link do Treinamento", row['Local_Link'])
+                                else:
+                                    st.caption(f"**🔗 Link:** {row['Local_Link']}")
+                    col_idx += 1
+                st.markdown("---") # Divisor entre os dias
+
+
 # ========= ADMIN (ATUALIZADO COM GESTÃO DE TRILHA) =========
 elif st.session_state.pagina_selecionada == "Administração":
     
@@ -875,40 +1179,158 @@ elif st.session_state.pagina_selecionada == "Administração":
     
     st.title("🔒 Administração de Dados")
     st.markdown("---")
-    password_input = st.text_input("Digite a senha de administrador:", type="password")
-
-    if password_input == ACCESS_PASSWORD:
+    
+    # --- ATUALIZADO: Login com st.form ---
+    if "admin_autenticado" not in st.session_state:
+        st.session_state.admin_autenticado = False
+    
+    if not st.session_state.admin_autenticado:
+        with st.form(key="admin_login_form"):
+            password_input = st.text_input("Digite a senha de administrador:", type="password")
+            admin_entrar = st.form_submit_button("Entrar")
+        
+        if admin_entrar:
+            if password_input == ACCESS_PASSWORD:
+                st.session_state.admin_autenticado = True
+                st.rerun()
+            else:
+                st.error("Senha incorreta. Acesso Negado.")
+    
+    if st.session_state.admin_autenticado:
         st.success("Acesso Concedido!")
 
-        # --- NOVA SEÇÃO: GESTÃO DA TRILHA ---
+        # --- SEÇÃO DE GESTÃO DE TREINAMENTOS (ATUALIZADA) ---
+        st.markdown("## 🗓️ Gestão de Treinamentos")
+        with st.expander("Cadastrar Novo Treinamento"):
+            with st.form("form_novo_treinamento"):
+                st.subheader("Preencha os dados do treinamento:")
+                col1, col2 = st.columns(2)
+                with col1:
+                    nome_treinamento = st.text_input("Nome do Treinamento")
+                    # CORRIGIDO: Adicionado format="DD/MM/YYYY"
+                    data_treinamento = st.date_input("Data do Treinamento", datetime.now(), format="DD/MM/YYYY")
+                    modalidade = st.selectbox("Modalidade", ["Presencial", "Online"])
+                with col2:
+                    # ATUALIZADO: Adicionado campo Unidade
+                    unidade_treinamento = st.selectbox("Unidade", ["Narandiba", "Paraguaçu Paulista"])
+                    local_link = st.text_input("Local (para Presencial) ou Link (para Online)")
+                    hora_inicio = st.time_input("Horário de Início", time(9, 0))
+                    hora_termino = st.time_input("Horário de Término", time(10, 0))
+                
+                enviar_treinamento = st.form_submit_button("💾 Salvar Treinamento")
+                
+                if enviar_treinamento:
+                    if not nome_treinamento:
+                        st.warning("Por favor, preencha o Nome do Treinamento.")
+                    else:
+                        nova_linha_treinamento = pd.DataFrame([{
+                            'Nome_Treinamento': nome_treinamento,
+                            'Data': data_treinamento.strftime('%d/%m/%Y'),
+                            'Inicio': hora_inicio.strftime('%H:%M:%S'),
+                            'Termino': hora_termino.strftime('%H:%M:%S'),
+                            'Modalidade': modalidade,
+                            'Local_Link': local_link,
+                            'Unidade': unidade_treinamento # Salvar novo campo
+                        }])
+                        nova_linha_treinamento.to_csv(TREINAMENTOS_FILE, mode='a', header=False, index=False, encoding='utf-8')
+                        st.success(f"✅ Treinamento '{nome_treinamento}' salvo!")
+                        st.rerun()
+
+        st.info("Aqui você pode editar ou apagar treinamentos já cadastrados.")
+        
+        # Corrigir o carregamento das datas para o editor
+        df_treinamentos_admin = initialize_treinamentos() 
+        df_treinamentos_admin['Deletar'] = False
+        # ATUALIZADO: Adicionar 'Unidade' ao editor
+        cols_treinamentos = ['Deletar'] + COLUNAS_TREINAMENTOS
+        df_treinamentos_admin = df_treinamentos_admin[cols_treinamentos]
+
+        edited_df_treinamentos = st.data_editor(
+            df_treinamentos_admin,
+            key="edit_treinamentos_df",
+            use_container_width=True,
+            column_config={
+                "Deletar": st.column_config.CheckboxColumn("Deletar?"),
+                "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
+                "Inicio": st.column_config.TimeColumn("Início", format="HH:mm"),
+                "Termino": st.column_config.TimeColumn("Término", format="HH:mm"),
+                "Modalidade": st.column_config.SelectboxColumn("Modalidade", options=["Presencial", "Online"]),
+                "Local_Link": st.column_config.TextColumn("Local / Link"),
+                # ATUALIZADO: Adicionada config da coluna Unidade
+                "Unidade": st.column_config.SelectboxColumn("Unidade", options=["Narandiba", "Paraguaçu Paulista"], required=True)
+            },
+            num_rows="dynamic"
+        )
+        
+        if st.button("Salvar Alterações nos Treinamentos"):
+            df_para_salvar_trein = edited_df_treinamentos[edited_df_treinamentos['Deletar'] == False].copy()
+            df_para_salvar_trein.drop(columns=['Deletar'], inplace=True)
+            
+            try:
+                # Converter datas e horas de volta para string antes de salvar
+                for col in DATE_COLS_TREINAMENTOS:
+                    df_para_salvar_trein[col] = pd.to_datetime(df_para_salvar_trein[col]).dt.strftime('%d/%m/%Y').replace('NaT', '')
+                for col in TIME_COLS_TREINAMENTOS:
+                    # Garantir que é um objeto time antes de formatar
+                    df_para_salvar_trein[col] = df_para_salvar_trein[col].apply(lambda x: x.strftime('%H:%M:%S') if isinstance(x, time) else (pd.to_datetime(x).strftime('%H:%M:%S') if pd.notna(x) else ''))
+
+                df_para_salvar_trein.to_csv(TREINAMENTOS_FILE, index=False, encoding='utf-8')
+                st.success("✅ Treinamentos atualizados com sucesso!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao salvar treinamentos: {e}")
+
+        st.markdown("---") # Divisor
+
+        # --- SEÇÃO DE GESTÃO DA TRILHA ---
         st.markdown("## 🧭 Gestão da Trilha de Desenvolvimento")
         
-        # --- NOVO: AÇÕES EM LOTE ---
+        # --- AÇÕES EM LOTE ---
         st.subheader("Ações em Lote")
+        st.markdown("Use esta seção para marcar ou desmarcar uma etapa para **todos** os estagiários de uma vez.")
         
-        # Criar um mapa reverso para o selectbox
         trilha_mapa_reverso = {v: k for k, v in TRILHA_MESES.items()}
         
-        col1, col2 = st.columns([3, 1])
-        mes_selecionado = col1.selectbox("Selecione a etapa para marcar em lote:", options=TRILHA_MESES.values())
+        col1, col2, col3 = st.columns([2, 1, 1]) # ATUALIZADO PARA 3 COLUNAS
+        
+        with col1:
+            mes_selecionado = st.selectbox("Selecione a etapa para a ação em lote:", options=TRILHA_MESES.values())
         
         def marcar_lote_csv():
-            mes_key = trilha_mapa_reverso[mes_selecionado] # Descobrir o 'Mes_1'
-            df_trilha_lote = initialize_trilha()
-            df_trilha_lote[mes_key] = True # Marcar tudo como True
-            df_trilha_lote.to_csv(TRILHA_FILE, index=False, encoding='utf-8')
-            st.success(f"Etapa '{mes_selecionado}' marcada como concluída para todos!")
-            # Não precisa de st.rerun() se o botão está fora do data_editor
+            try:
+                mes_key = trilha_mapa_reverso[mes_selecionado] 
+                df_trilha_lote = initialize_trilha()
+                df_trilha_lote[mes_key] = True # Set to TRUE
+                df_trilha_lote.to_csv(TRILHA_FILE, index=False, encoding='utf-8')
+                st.success(f"Etapa '{mes_selecionado}' marcada como CONCLUÍDA para todos!")
+            except Exception as e:
+                st.error(f"Erro ao salvar ação em lote: {e}")
+        
+        # --- NOVA FUNÇÃO "DESMARCAR TODOS" ---
+        def desmarcar_lote_csv():
+            try:
+                mes_key = trilha_mapa_reverso[mes_selecionado] 
+                df_trilha_lote = initialize_trilha()
+                df_trilha_lote[mes_key] = False # Set to FALSE
+                df_trilha_lote.to_csv(TRILHA_FILE, index=False, encoding='utf-8')
+                st.success(f"Etapa '{mes_selecionado}' marcada como PENDENTE para todos!")
+            except Exception as e:
+                st.error(f"Erro ao salvar ação em lote: {e}")
             
-        col2.button("Marcar Todos como Concluído", on_click=marcar_lote_csv, use_container_width=True)
+        with col2:
+            st.button("Marcar Todos (Concluído)", on_click=marcar_lote_csv, use_container_width=True, type="primary")
+            
+        with col3:
+            st.button("Desmarcar Todos (Pendente)", on_click=desmarcar_lote_csv, use_container_width=True, type="secondary") # NOVO BOTÃO
+        
         st.divider()
         # --- FIM AÇÕES EM LOTE ---
         
         
-        st.info("Marque as etapas concluídas para cada estagiário.")
+        st.info("Aqui você pode marcar as etapas concluídas individualmente.")
         
         try:
-            base_df_admin = pd.read_excel(BASE_FILE, dtype=str)
+            base_df_admin = pd.read_excel(BASE_FILE, dtype={'MATRICULA': str})
             base_df_admin = base_df_admin[['MATRICULA', 'COLABORADOR']]
             
             df_trilha_admin = initialize_trilha()
@@ -917,7 +1339,6 @@ elif st.session_state.pagina_selecionada == "Administração":
                                          left_on='MATRICULA', right_on='Matricula', 
                                          how='left')
             
-            # Preencher 'False' para estagiários novos que ainda não estão no CSV
             df_trilha_display['Matricula'] = df_trilha_display['MATRICULA']
             df_trilha_display[COLUNAS_TRILHA] = df_trilha_display[COLUNAS_TRILHA].fillna(False)
 
@@ -940,7 +1361,6 @@ elif st.session_state.pagina_selecionada == "Administração":
             )
 
             if st.button("Salvar Progresso das Trilhas"):
-                # Salvar apenas as colunas certas de volta no CSV
                 df_para_salvar_trilha = edited_df_trilha[COLUNAS_TRILHA]
                 df_para_salvar_trilha.to_csv(TRILHA_FILE, index=False, encoding='utf-8')
                 st.success("✅ Progresso das trilhas foi salvo!")
