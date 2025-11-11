@@ -1,10 +1,12 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px  # Necessário para os gráficos do Dashboard
+import plotly.express as px
 import base64
 import os
 from datetime import datetime
 import csv
+from dateutil.relativedelta import relativedelta 
+from streamlit.errors import StreamlitAPIException
 
 # --- 1. CONFIGURAÇÃO INICIAL ---
 st.set_page_config(layout="wide")
@@ -15,12 +17,14 @@ if 'pagina_selecionada' not in st.session_state:
 if 'registration_count' not in st.session_state:
     st.session_state.registration_count = 0
 
+# --- Nomes dos Arquivos ---
 CSV_FILE = "registros.csv"
-BASE_FILE = "Base.xlsx" # Corrigido para "B" maiúsculo
+BASE_FILE = "Base.xlsx"
 GESTOR_FILE = "gestor.xlsx"
 CSV_FEEDBACK = "feedback_gestor_programa.csv"
+TRILHA_FILE = "progresso_trilha.csv" # <--- NOVO ARQUIVO DE DADOS
 
-# --- SENHAS CARREGADAS COM SEGURANÇA ---
+# --- Senhas ---
 try:
     SENHA_GESTOR = st.secrets["SENHA_GESTOR"]
     ACCESS_PASSWORD = st.secrets["SENHA_ADMIN"]
@@ -33,6 +37,16 @@ except KeyError:
     SENHA_GESTOR = "cocal@2025"
     ACCESS_PASSWORD = "cocal"
 
+# --- Tópicos da Trilha (Resumidos da sua imagem) ---
+TRILHA_MESES = {
+    "Mes_1": "Mês 1: Onboarding, Integração e Cultura Cocal.",
+    "Mes_2": "Mês 2: Alinhamento com Gestor, Treinamento Somar Ideias e Engajamento.",
+    "Mes_3": "Mês 3: Feedback RH (Conversa Guiada) e Feedback com Gestor (Conhecimento na Função).",
+    "Mes_4": "Mês 4: Registro da Ideia (Somar) e Treinamento de Segurança.",
+    "Mes_5": "Mês 5: Apresentação da Ideia de Melhoria e Feedback de Desempenho (Pré-efetivação).",
+    "Mes_6": "Mês 6: Alinhamento Final (Propostas de efetivação/remanejamento)."
+}
+COLUNAS_TRILHA = ['Matricula', 'Mes_1', 'Mes_2', 'Mes_3', 'Mes_4', 'Mes_5', 'Mes_6']
 
 # --- 2. FUNÇÕES DE APOIO (ATUALIZADAS) ---
 
@@ -60,8 +74,6 @@ def initialize_data():
                         df[col] = pd.NA
                 df = df[COLUNAS_REGISTROS]
             
-            # --- CORREÇÃO DO ERRO DE DATA ---
-            # Converte colunas de data (que são strings 'dd/mm/YYYY') para datetime
             for col in DATE_COLS_REGISTROS:
                 df[col] = pd.to_datetime(df[col], format='%d/%m/%Y', errors='coerce')
             
@@ -69,6 +81,36 @@ def initialize_data():
         except Exception as e:
             st.error(f"Erro ao ler {CSV_FILE}: {e}. Pode ser necessário apagá-lo na área de Administração.")
             return pd.DataFrame(columns=COLUNAS_REGISTROS)
+
+# --- NOVA FUNÇÃO PARA INICIALIZAR A TRILHA ---
+def initialize_trilha():
+    if not os.path.exists(TRILHA_FILE):
+        try:
+            base_df = pd.read_excel(BASE_FILE, dtype=str)
+            if "MATRICULA" in base_df.columns:
+                matriculas = base_df["MATRICULA"].dropna().unique()
+                trilha_data = []
+                for m in matriculas:
+                    trilha_data.append({
+                        'Matricula': m, 
+                        'Mes_1': False, 'Mes_2': False, 'Mes_3': False,
+                        'Mes_4': False, 'Mes_5': False, 'Mes_6': False
+                    })
+                df_trilha = pd.DataFrame(trilha_data, columns=COLUNAS_TRILHA)
+                df_trilha.to_csv(TRILHA_FILE, index=False, encoding='utf-8')
+                return df_trilha
+            else:
+                st.error("Arquivo 'Base.xlsx' não contém a coluna 'MATRICULA'.")
+                return pd.DataFrame(columns=COLUNAS_TRILHA)
+        except Exception as e:
+            st.error(f"Erro ao inicializar progresso_trilha.csv: {e}")
+            return pd.DataFrame(columns=COLUNAS_TRILHA)
+    else:
+        try:
+            return pd.read_csv(TRILHA_FILE, dtype={'Matricula': str})
+        except Exception as e:
+            st.error(f"Erro ao ler {TRILHA_FILE}: {e}")
+            return pd.DataFrame(columns=COLUNAS_TRILHA)
 
 def mudar_pagina(nova_pagina):
     st.session_state.pagina_selecionada = nova_pagina
@@ -80,6 +122,12 @@ def delete_all_data():
         st.success("✅ Todos os registros de ATIVIDADES foram apagados com sucesso!")
     else:
         st.warning("O arquivo de registros de atividades não existe.")
+    
+    # Apagar também o arquivo da trilha
+    if os.path.exists(TRILHA_FILE):
+        os.remove(TRILHA_FILE)
+        st.success("✅ Progresso de trilhas também foi reiniciado.")
+    
     st.rerun()
 
 # --- Funções de Apoio (CRUD) ---
@@ -93,9 +141,9 @@ def get_base64_of_bin_file(bin_file):
         st.error(f"Erro ao carregar imagem: {bin_file}, {e}")
         return ""
 
-# --- ATUALIZADO: CSS MOBILE-FIRST ---
+# --- ATUALIZADO: CSS SIMPLIFICADO ---
 def get_home_page_css(desktop_img, mobile_img):
-    """Gera o CSS com Media Query 'Mobile-First'."""
+    """Gera o CSS com Media Query para trocar APENAS o fundo."""
     
     try:
         desktop_ext = os.path.splitext(desktop_img)[1][1:]
@@ -109,7 +157,7 @@ def get_home_page_css(desktop_img, mobile_img):
     except Exception:
         mobile_ext = "jpg"; mobile_bin_str = ""
 
-    # CSS Padrão (Mobile-First)
+    # CSS Padrão (Desktop)
     css = f'''
     <style>
         /* Esconder sidebar na Home */
@@ -117,9 +165,9 @@ def get_home_page_css(desktop_img, mobile_img):
             display: none;
         }}
         
-        /* Fundo Padrão (MOBILE) */
+        /* Fundo Padrão (Desktop) */
         [data-testid="stAppViewContainer"] {{
-            background-image: url("data:image/{mobile_ext};base64,{mobile_bin_str}");
+            background-image: url("data:image/{desktop_ext};base64,{desktop_bin_str}");
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
@@ -154,21 +202,22 @@ def get_home_page_css(desktop_img, mobile_img):
             border: 1px solid #CCCCCC;
         }}
 
-        /* Posição para Celular: 45% da altura (mais para cima) */
+        /* --- AJUSTE DE POSIÇÃO DOS BOTÕES --- */
         .button-container {{
-            margin-top: 45vh;
+            /* Posição para Desktop: 55% da altura da tela */
+            margin-top: 55vh; 
         }}
         
-        /* Media Query para DESKTOP (Min-width) */
-        @media (min-width: 701px) {{
-            /* Fundo Desktop */
+        /* O CSS MÁGICO: Media Query */
+        @media (max-width: 700px) {{
+            /* Fundo Mobile */
             [data-testid="stAppViewContainer"] {{
-                background-image: url("data:image/{desktop_ext};base64,{desktop_bin_str}");
+                background-image: url("data:image/{mobile_ext};base64,{mobile_bin_str}");
             }}
-
-            /* Posição para Desktop: 55% da altura da tela */
+            
+            /* Posição para Celular: 45% da altura (mais para cima) */
             .button-container {{
-                margin-top: 55vh; 
+                margin-top: 45vh;
             }}
         }}
     </style>
@@ -176,12 +225,12 @@ def get_home_page_css(desktop_img, mobile_img):
     return css
 
 # --- 3. EXECUÇÃO DE CSS/FUNDO E BARRA LATERAL ---
-# Não precisamos mais da detecção de 'is_mobile' aqui
 
 st.sidebar.title("Menu")
+# ATUALIZADO: Adicionada nova página
 st.sidebar.radio(
     "Selecione a funcionalidade:",
-    ("Home", "Dashboard", "Registro de Atividade", "Registro de Feedback", "Administração"),
+    ("Home", "Dashboard", "Registro de Atividade", "Trilha de Desenvolvimento", "Registro de Feedback", "Administração"),
     key="pagina_selecionada"
 )
 st.sidebar.divider()
@@ -203,27 +252,25 @@ if st.session_state.pagina_selecionada != "Home":
 
 # --- 4. PÁGINAS ---
 df_data = initialize_data()
+df_trilha = initialize_trilha() # Carregar/Criar o arquivo da trilha
 
 # ========= HOME (LAYOUT ÚNICO E SIMPLIFICADO) =========
 if st.session_state.pagina_selecionada == "Home":
     
-    # Carregar o CSS mágico que faz a troca de fundo
     try:
         css = get_home_page_css("fundo.jpg", "fundocelular.jpg")
         st.markdown(css, unsafe_allow_html=True)
     except Exception as e:
         st.error(f"Ocorreu um erro ao carregar o fundo: {e}")
 
-    # --- Layout Único (3 colunas) ---
-    # O Streamlit vai empilhar isso automaticamente no celular
     
-    # Adiciona a div com a classe para controlar o espaçamento
     st.markdown('<div class="button-container">', unsafe_allow_html=True) 
     
     col1, col2, col3 = st.columns(3)
     with col1:
         st.button("📋 Registro de Atividade", use_container_width=True, on_click=mudar_pagina, args=("Registro de Atividade",), key="reg_desktop")
-        st.button("Trilha de Desenvolvimento", use_container_width=True, key="trilha_desktop") 
+        # ATUALIZADO: Botão da trilha agora funciona
+        st.button("Trilha de Desenvolvimento", use_container_width=True, key="trilha_desktop", on_click=mudar_pagina, args=("Trilha de Desenvolvimento",)) 
     with col2:
         st.button("💬 Registro de Feedback", use_container_width=True, on_click=mudar_pagina, args=("Registro de Feedback",), key="feed_desktop")
         st.button("Treinamentos", use_container_width=True, key="treina_desktop")
@@ -232,14 +279,11 @@ if st.session_state.pagina_selecionada == "Home":
         st.button("🔒 Administração", use_container_width=True, on_click=mudar_pagina, args=("Administração",), key="admin_desktop")
     
     st.markdown('</div>', unsafe_allow_html=True)
-    
-    # O layout mobile duplicado foi REMOVIDO
 
 
 # ========= DASHBOARD (ATUALIZADO COM RANKING E CORES) =========
 elif st.session_state.pagina_selecionada == "Dashboard":
     
-    # --- NOVO BOTÃO HOME ---
     st.button("🏠 Voltar para Home", on_click=mudar_pagina, args=("Home",))
     
     st.title("📊 Relatórios de Feedback dos Gestores")
@@ -249,9 +293,9 @@ elif st.session_state.pagina_selecionada == "Dashboard":
     if os.path.exists(CSV_FEEDBACK):
         df_feedback = pd.read_csv(CSV_FEEDBACK)
     else:
-        df_feedback = pd.DataFrame() # Cria um dataframe vazio se o arquivo não existir
+        df_feedback = pd.DataFrame() 
 
-    cols_competencias = [] # Inicializa a lista de competências
+    cols_competencias = [] 
     
     if not df_feedback.empty:
         df_display_feedback = df_feedback.copy()
@@ -260,10 +304,8 @@ elif st.session_state.pagina_selecionada == "Dashboard":
 
         if filtro_estagiario_sidebar != "Todos" and "Estagiario" in df_display_feedback.columns:
             df_display_feedback = df_display_feedback[df_display_feedback["Estagiario"] == filtro_estagiario_sidebar]
-            # Também filtrar o df_feedback original para os gráficos
             df_feedback = df_feedback[df_feedback["Estagiario"] == filtro_estagiario_sidebar]
 
-        # Ocultar coluna de feedback livre
         colunas_para_ocultar = ['Feedback_Livre', 'sugestao_melhoria']
         for col in colunas_para_ocultar:
             if col in df_display_feedback.columns:
@@ -275,19 +317,16 @@ elif st.session_state.pagina_selecionada == "Dashboard":
         st.markdown("---")
         st.subheader("Análise Gráfica")
         
-        # --- COLUNA 1: GRÁFICO DE PIZZA DE FEEDBACK (CORRIGIDO) ---
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("**Análise de Feedbacks (Gestores)**")
             
-            # --- CORREÇÃO: Lógica de Coluna Dinâmica ---
-            # Ele vai pegar QUALQUER coluna que não seja as de ID
             colunas_excluir = ['DATA', 'GESTOR', 'Data_Hora', 'Gestor', 'Estagiario', 'Feedback_Livre', 'sugestao_melhoria']
             cols_competencias = [col for col in df_feedback.columns if col not in colunas_excluir]
             
             if not cols_competencias or df_feedback.empty:
                 st.warning("Nenhum dado de competência (Ex: 'Iniciativa' ou 'estrutura_suporte') foi encontrado no feedback.")
-                df_grafico = pd.DataFrame() # Criar df_grafico vazio para o ranking
+                df_grafico = pd.DataFrame() 
             else:
                 mapa_notas = {"Excelente": 4, "Bom": 3, "Regular": 2, "Ruim": 1, None: 0}
                 mapa_cores = {
@@ -300,11 +339,9 @@ elif st.session_state.pagina_selecionada == "Dashboard":
                 df_grafico = df_feedback.copy()
                 df_pizza_data = []
                 for col in cols_competencias:
-                    # Adicionar cálculo de nota para o ranking (se a coluna for uma das novas)
                     if col in ['Iniciativa', 'Aprendizagem', 'Qualidade', 'Relacoes']:
                         df_grafico[f'Nota_{col}'] = df_grafico[col].map(mapa_notas).fillna(0)
                     
-                    # Adicionar contagem para o gráfico de pizza
                     contagem = df_grafico[col].value_counts().reset_index()
                     contagem.columns = ['Avaliação', 'Contagem']
                     df_pizza_data.append(contagem)
@@ -314,21 +351,18 @@ elif st.session_state.pagina_selecionada == "Dashboard":
                     
                     fig_pie = px.pie(df_pizza_total, names='Avaliação', values='Contagem', 
                                      title="Distribuição Geral das Avaliações",
-                                     color='Avaliação', # Força o uso da coluna
-                                     color_discrete_map=mapa_cores) # E força o mapa de cores
+                                     color='Avaliação', 
+                                     color_discrete_map=mapa_cores) 
                     st.plotly_chart(fig_pie, use_container_width=True)
                 else:
                     st.info("Sem dados para o gráfico de pizza de feedback.")
         
-        # --- COLUNA 2: NOVO GRÁFICO DE STATUS DE PROJETOS ---
         with col2:
             st.markdown("**Status dos Projetos (Estagiários)**")
             
             if not df_data.empty:
-                # Pegar o último status de cada projeto
                 df_projetos_unicos = df_data.sort_values(by='Data_Registro', ascending=True).drop_duplicates(subset=['Colaborador', 'Nome_Projeto'], keep='last')
                 
-                # Filtrar pelo estagiário selecionado na sidebar
                 if filtro_estagiario_sidebar != "Todos":
                     df_projetos_unicos = df_projetos_unicos[df_projetos_unicos['Colaborador'] == filtro_estagiario_sidebar]
                 
@@ -349,12 +383,10 @@ elif st.session_state.pagina_selecionada == "Dashboard":
             else:
                 st.info("Nenhum projeto registrado.")
 
-        # --- GRÁFICO DE BARRAS (ABAIXO) ---
         if not df_grafico.empty and cols_competencias:
-            # Pegar apenas as colunas de notas que realmente existem
             cols_notas_existentes = [f'Nota_{col}' for col in cols_competencias if f'Nota_{col}' in df_grafico.columns]
             
-            if cols_notas_existentes: # Só mostrar se tiver as colunas de nota novas
+            if cols_notas_existentes: 
                 st.markdown(f"**Média por Competência ({filtro_estagiario_sidebar})**")
                 medias = []
                 for col_nota, col_nome in zip(cols_notas_existentes, cols_competencias):
@@ -363,21 +395,16 @@ elif st.session_state.pagina_selecionada == "Dashboard":
                 
                 df_medias = pd.DataFrame(medias)
                 
-                # --- APLICAÇÃO DO GRADIENTE E BARRAS FINAS ---
                 fig_bar = px.bar(df_medias, x='Competência', y='Média', 
                                  title="Média por Competência (4=Excelente, 1=Ruim)",
                                  text=df_medias['Média'].apply(lambda x: f'{x:.2f}'),
                                  range_y=[0, 4],
-                                 color='Média', # Mapear cor para a Média
-                                 # Gradiente Azul -> Verde
+                                 color='Média', 
                                  color_continuous_scale=[[0, '#30515F'], [1, '#76B82A']], 
                                  range_color=[0, 4] 
                                 )
                 
-                # Afinar as barras (aumentando o espaço entre elas)
                 fig_bar.update_layout(bargap=0.5)
-                
-                # Remover a colorbar (legenda de cor)
                 fig_bar.update_layout(coloraxis_showscale=False)
                 
                 st.plotly_chart(fig_bar, use_container_width=True)
@@ -385,7 +412,7 @@ elif st.session_state.pagina_selecionada == "Dashboard":
                 st.info("O gráfico de média por competência só funciona com os novos formulários de feedback (Iniciativa, Qualidade, etc.)")
     else:
         st.info("Nenhum feedback registrado até o momento.")
-        df_grafico = pd.DataFrame() # Criar df_grafico vazio se não houver feedbacks
+        df_grafico = pd.DataFrame() 
 
     # --- 2. SEÇÃO DE RELATÓRIO DE ATIVIDADES ---
     st.markdown("---")
@@ -401,7 +428,6 @@ elif st.session_state.pagina_selecionada == "Dashboard":
             if filtro_estagiario_sidebar != "Todos":
                 df_filtrada = df_filtrada[df_filtrada['Colaborador'] == filtro_estagiario_sidebar]
             
-            # Formatar as datas de volta para string para exibição
             for col in DATE_COLS_REGISTROS:
                 if col in df_filtrada.columns:
                     df_filtrada[col] = df_filtrada[col].dt.strftime('%d/%m/%Y').replace('NaT', '')
@@ -421,12 +447,9 @@ elif st.session_state.pagina_selecionada == "Dashboard":
     st.info("Esta tabela combina os feedbacks dos gestores com a entrega de projetos para classificar o desempenho.")
 
     try:
-        # 1. Obter lista mestre de estagiários
         base_estagiarios = pd.read_excel(BASE_FILE)
         df_ranking = pd.DataFrame(base_estagiarios["COLABORADOR"].dropna().unique(), columns=["Estagiário"])
 
-        # 2. Calcular Nota Média de Feedback
-        # Pegar apenas as colunas de notas que realmente existem
         cols_notas_existentes = [f'Nota_{col}' for col in cols_competencias if f'Nota_{col}' in df_grafico.columns]
         
         if not df_grafico.empty and cols_notas_existentes: 
@@ -437,17 +460,13 @@ elif st.session_state.pagina_selecionada == "Dashboard":
         else:
             df_ranking["Nota Média (de 4.0)"] = 0.0
 
-        # 3. Calcular Métricas de Projetos (usando df_data)
         if not df_data.empty:
-            # Pegar o último status de cada projeto
             df_projetos_unicos = df_data.sort_values(by='Data_Registro', ascending=True).drop_duplicates(subset=['Colaborador', 'Nome_Projeto'], keep='last')
             
-            # Contar Projetos Concluídos
             df_concluidos = df_projetos_unicos[df_projetos_unicos['Status'] == 'Concluído'].groupby('Colaborador')['Nome_Projeto'].count().reset_index()
             df_concluidos.rename(columns={'Colaborador': 'Estagiário', 'Nome_Projeto': 'Projetos Concluídos'}, inplace=True)
             df_ranking = pd.merge(df_ranking, df_concluidos, on="Estagiário", how="left")
 
-            # Contar Projetos Atrasados
             hoje = pd.to_datetime(datetime.now().date())
             df_atrasados = df_projetos_unicos[
                 (df_projetos_unicos['Status'].isin(['Iniciado', 'Pendente'])) &
@@ -460,7 +479,6 @@ elif st.session_state.pagina_selecionada == "Dashboard":
             df_ranking["Projetos Concluídos"] = 0
             df_ranking["Projetos Atrasados"] = 0
 
-        # Limpar NaNs e ordenar
         df_ranking.fillna(0, inplace=True)
         df_ranking = df_ranking.sort_values(by=["Nota Média (de 4.0)", "Projetos Concluídos", "Projetos Atrasados"], ascending=[False, False, True])
         
@@ -477,7 +495,6 @@ elif st.session_state.pagina_selecionada == "Dashboard":
 # ========= REGISTRO DE ATIVIDADE =========
 elif st.session_state.pagina_selecionada == "Registro de Atividade":
     
-    # --- NOVO BOTÃO HOME ---
     st.button("🏠 Voltar para Home", on_click=mudar_pagina, args=("Home",))
     
     st.title("📋 Registro de Atividade")
@@ -646,10 +663,105 @@ elif st.session_state.pagina_selecionada == "Registro de Atividade":
     elif confirmar and not matricula:
         st.warning("Por favor, digite uma matrícula antes de confirmar.")
 
+# ========= NOVA PÁGINA: TRILHA DE DESENVOLVIMENTO =========
+elif st.session_state.pagina_selecionada == "Trilha de Desenvolvimento":
+    
+    st.button("🏠 Voltar para Home", on_click=mudar_pagina, args=("Home",))
+    st.title("🌱 Trilha de Desenvolvimento do Estagiário")
+    st.markdown("---")
+
+    try:
+        base = pd.read_excel(BASE_FILE, dtype=str)
+    except Exception as e:
+        st.warning(f"Não foi possível carregar {BASE_FILE}: {e}")
+        base = pd.DataFrame(columns=["MATRICULA", "COLABORADOR", "DESCRIÇÃO LOCAL", "UNIDADE", "ADMISSAO"]) 
+
+    # Carregar o progresso da trilha
+    df_trilha_progresso = initialize_trilha()
+
+    st.write("Digite sua matrícula para ver sua trilha:")
+    matricula = st.text_input("Matrícula", key="trilha_matricula_input")
+    confirmar = st.button("Confirmar matrícula")
+
+    if confirmar and matricula:
+        st.session_state["trilha_matricula_digitada"] = matricula
+
+    if st.session_state.get("trilha_matricula_digitada"):
+        matricula = st.session_state["trilha_matricula_digitada"]
+        
+        # --- CORREÇÃO AQUI ---
+        coluna_admissao = "ADMISSAO" # <--- Nome exato da sua coluna
+        
+        if coluna_admissao not in base.columns:
+            st.error(f"Erro: A coluna '{coluna_admissao}' não foi encontrada no arquivo 'Base.xlsx'. Verifique o nome da coluna.")
+        else:
+            estagiario = base.loc[base["MATRICULA"].astype(str) == str(matricula)]
+            
+            if not estagiario.empty:
+                nome = estagiario["COLABORADOR"].values[0]
+                st.subheader(f"Olá, {nome}! Esta é a sua trilha de 6 meses.")
+                
+                try:
+                    data_admissao_str = estagiario[coluna_admissao].values[0]
+                    # Tentar converter a data (pode estar como texto ou número do Excel)
+                    data_admissao = pd.to_datetime(data_admissao_str, errors='coerce')
+
+                    if pd.isna(data_admissao):
+                        st.error("Sua data de admissão não foi encontrada ou está em formato incorreto.")
+                    else:
+                        st.write(f"**Sua jornada começou em:** {data_admissao.strftime('%d/%m/%Y')}")
+                        
+                        # Buscar o progresso
+                        progresso = df_trilha_progresso[df_trilha_progresso['Matricula'] == matricula]
+                        
+                        if progresso.empty:
+                            st.warning("Seu progresso na trilha ainda não foi iniciado pelo RH.")
+                        else:
+                            progresso = progresso.iloc[0] # Pega a primeira linha
+                            
+                            hoje = datetime.now()
+                            
+                            # --- LÓGICA DO PROGRESSO VISUAL ---
+                            meses_completos = progresso[['Mes_1', 'Mes_2', 'Mes_3', 'Mes_4', 'Mes_5', 'Mes_6']].sum()
+                            percentual_completo = int((meses_completos / 6) * 100)
+                            st.progress(percentual_completo, text=f"{percentual_completo}% Concluído")
+                            
+                            etapa_atual_encontrada = False
+                            
+                            for i in range(1, 7):
+                                mes_key = f"Mes_{i}"
+                                mes_descricao = TRILHA_MESES[mes_key]
+                                mes_concluido = progresso[mes_key]
+                                data_limite = data_admissao + relativedelta(months=i)
+                                
+                                if mes_concluido:
+                                    st.success(f"✅ **{mes_descricao}** (Concluído!)", icon="✅")
+                                else:
+                                    # Se não está concluído, vamos ver se é a etapa atual ou se está atrasada
+                                    if not etapa_atual_encontrada:
+                                        # É a primeira etapa não concluída, logo é a atual
+                                        if hoje > data_limite:
+                                            st.error(f"🚨 **{mes_descricao}** (Prazo: {data_limite.strftime('%d/%m/%Y')} - PENDENTE)", icon="🚨")
+                                        else:
+                                            st.info(f"⏳ **{mes_descricao}** (Prazo: {data_limite.strftime('%d/%m/%Y')} - ETAPA ATUAL)", icon="⏳")
+                                        etapa_atual_encontrada = True
+                                    else:
+                                        # Etapa futura
+                                        st.caption(f"🔘 {mes_descricao} (Prazo: {data_limite.strftime('%d/%m/%Y')})")
+                            
+                except Exception as e:
+                    st.error(f"Ocorreu um erro ao calcular sua trilha: {e}")
+
+            else:
+                st.error("⚠️ Matrícula não encontrada na base. Verifique e tente novamente.")
+                
+    elif confirmar and not matricula:
+        st.warning("Por favor, digite uma matrícula antes de confirmar.")
+
+
 # ========= REGISTRO DE FEEDBACK =========
 elif st.session_state.pagina_selecionada == "Registro de Feedback":
     
-    # --- NOVO BOTÃO HOME ---
     st.button("🏠 Voltar para Home", on_click=mudar_pagina, args=("Home",))
     
     st.title("💬 Registro de Feedback do Gestor")
@@ -756,10 +868,9 @@ elif st.session_state.pagina_selecionada == "Registro de Feedback":
                         ])
                     st.success("✅ Feedback registrado com sucesso!")
 
-# ========= ADMIN (ATUALIZADO COM CORREÇÃO DE DATA) =========
+# ========= ADMIN (ATUALIZADO COM GESTÃO DE TRILHA) =========
 elif st.session_state.pagina_selecionada == "Administração":
     
-    # --- NOVO BOTÃO HOME ---
     st.button("🏠 Voltar para Home", on_click=mudar_pagina, args=("Home",))
     
     st.title("🔒 Administração de Dados")
@@ -768,6 +879,77 @@ elif st.session_state.pagina_selecionada == "Administração":
 
     if password_input == ACCESS_PASSWORD:
         st.success("Acesso Concedido!")
+
+        # --- NOVA SEÇÃO: GESTÃO DA TRILHA ---
+        st.markdown("## 🧭 Gestão da Trilha de Desenvolvimento")
+        
+        # --- NOVO: AÇÕES EM LOTE ---
+        st.subheader("Ações em Lote")
+        
+        # Criar um mapa reverso para o selectbox
+        trilha_mapa_reverso = {v: k for k, v in TRILHA_MESES.items()}
+        
+        col1, col2 = st.columns([3, 1])
+        mes_selecionado = col1.selectbox("Selecione a etapa para marcar em lote:", options=TRILHA_MESES.values())
+        
+        def marcar_lote_csv():
+            mes_key = trilha_mapa_reverso[mes_selecionado] # Descobrir o 'Mes_1'
+            df_trilha_lote = initialize_trilha()
+            df_trilha_lote[mes_key] = True # Marcar tudo como True
+            df_trilha_lote.to_csv(TRILHA_FILE, index=False, encoding='utf-8')
+            st.success(f"Etapa '{mes_selecionado}' marcada como concluída para todos!")
+            # Não precisa de st.rerun() se o botão está fora do data_editor
+            
+        col2.button("Marcar Todos como Concluído", on_click=marcar_lote_csv, use_container_width=True)
+        st.divider()
+        # --- FIM AÇÕES EM LOTE ---
+        
+        
+        st.info("Marque as etapas concluídas para cada estagiário.")
+        
+        try:
+            base_df_admin = pd.read_excel(BASE_FILE, dtype=str)
+            base_df_admin = base_df_admin[['MATRICULA', 'COLABORADOR']]
+            
+            df_trilha_admin = initialize_trilha()
+            
+            df_trilha_display = pd.merge(base_df_admin, df_trilha_admin, 
+                                         left_on='MATRICULA', right_on='Matricula', 
+                                         how='left')
+            
+            # Preencher 'False' para estagiários novos que ainda não estão no CSV
+            df_trilha_display['Matricula'] = df_trilha_display['MATRICULA']
+            df_trilha_display[COLUNAS_TRILHA] = df_trilha_display[COLUNAS_TRILHA].fillna(False)
+
+            edited_df_trilha = st.data_editor(
+                df_trilha_display,
+                key="edit_trilha_df",
+                use_container_width=True,
+                disabled=['MATRICULA', 'COLABORADOR', 'Matricula'],
+                column_config={
+                    "COLABORADOR": "Estagiário",
+                    "Mes_1": st.column_config.CheckboxColumn(TRILHA_MESES['Mes_1']),
+                    "Mes_2": st.column_config.CheckboxColumn(TRILHA_MESES['Mes_2']),
+                    "Mes_3": st.column_config.CheckboxColumn(TRILHA_MESES['Mes_3']),
+                    "Mes_4": st.column_config.CheckboxColumn(TRILHA_MESES['Mes_4']),
+                    "Mes_5": st.column_config.CheckboxColumn(TRILHA_MESES['Mes_5']),
+                    "Mes_6": st.column_config.CheckboxColumn(TRILHA_MESES['Mes_6']),
+                    "MATRICULA": None, # Esconder
+                    "Matricula": None  # Esconder
+                }
+            )
+
+            if st.button("Salvar Progresso das Trilhas"):
+                # Salvar apenas as colunas certas de volta no CSV
+                df_para_salvar_trilha = edited_df_trilha[COLUNAS_TRILHA]
+                df_para_salvar_trilha.to_csv(TRILHA_FILE, index=False, encoding='utf-8')
+                st.success("✅ Progresso das trilhas foi salvo!")
+                st.rerun()
+
+        except Exception as e:
+            st.error(f"Erro ao carregar o editor de trilhas: {e}")
+        
+        st.markdown("---") # Divisor
 
         # --- SEÇÃO DE EDIÇÃO DE FEEDBACKS ---
         st.markdown("## ✏️ Editar / Apagar Feedbacks dos Gestores")
@@ -807,7 +989,7 @@ elif st.session_state.pagina_selecionada == "Administração":
             st.warning(f"O arquivo {CSV_FEEDBACK} ainda não existe. Nenhum feedback para editar.")
 
         
-        # --- NOVA SEÇÃO: EDIÇÃO DE ATIVIDADES ---
+        # --- SEÇÃO: EDIÇÃO DE ATIVIDADES ---
         st.markdown("---")
         st.markdown("## ✏️ Editar / Apagar Atividades dos Estagiários")
         st.info(f"Aqui você pode editar ou apagar linhas do arquivo de atividades '{CSV_FILE}'.")
@@ -826,7 +1008,6 @@ elif st.session_state.pagina_selecionada == "Administração":
                     df_atividades,
                     key="edit_atividades_df",
                     use_container_width=True,
-                    # Agora que as datas são datetime, podemos usar o DateColumn
                     column_config={
                         "Deletar": st.column_config.CheckboxColumn("Deletar?", default=False),
                         "Data_Registro": st.column_config.DateColumn("Registro", format="DD/MM/YYYY", disabled=True),
@@ -834,7 +1015,7 @@ elif st.session_state.pagina_selecionada == "Administração":
                         "Setor": st.column_config.Column(disabled=True),
                         "Data_Inicio_Projeto": st.column_config.DateColumn("Início", format="DD/MM/YYYY"),
                         "Previsao_Conclusao": st.column_config.DateColumn("Previsão", format="DD/MM/YYYY"),
-                        "Percentual_Concluido": st.column_config.NumberColumn("%", format="%d%%"), # Ainda mostramos
+                        "Percentual_Concluido": st.column_config.NumberColumn("%", format="%d%%"), 
                         "Status": st.column_config.SelectboxColumn("Status", options=["Iniciado", "Pendente", "Concluído"]) 
                     },
                     num_rows="dynamic" 
@@ -845,7 +1026,6 @@ elif st.session_state.pagina_selecionada == "Administração":
                     df_para_salvar_ativ.drop(columns=['Deletar'], inplace=True)
                     
                     try:
-                        # --- ATUALIZAR % AUTOMATICAMENTE ---
                         def map_status_to_percent(status):
                             if status == "Iniciado": return 0
                             elif status == "Pendente": return 50
@@ -853,7 +1033,6 @@ elif st.session_state.pagina_selecionada == "Administração":
                             return 0
                         df_para_salvar_ativ['Percentual_Concluido'] = df_para_salvar_ativ['Status'].apply(map_status_to_percent)
                         
-                        # --- CORREÇÃO DO ERRO DE DATA (Salvamento) ---
                         for col in DATE_COLS_REGISTROS:
                             df_para_salvar_ativ[col] = df_para_salvar_ativ[col].dt.strftime('%d/%m/%Y').replace('NaT', '')
                         
